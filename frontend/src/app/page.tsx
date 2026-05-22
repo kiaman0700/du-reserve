@@ -99,25 +99,14 @@ const INITIAL_SEATS: Seat[] = Array.from({ length: 24 }, (_, i) => {
   };
 });
 
-// Initial Mock Absence Reports
-const INITIAL_REPORTS: AbsenceReport[] = [
-  {
-    id: 1,
-    seat_id: 7,
-    reporter_id: "user-mock-reporter",
-    // Base64 placeholder representing a bag on the seat
-    first_photo_url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'><rect width='100' height='100' fill='%231e293b'/><circle cx='50' cy='50' r='20' fill='%23d97706'/><text x='50' y='80' fill='%23f8fafc' font-size='10' text-anchor='middle'>[1차] 방치된 책가방</text></svg>",
-    first_reported_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10 mins ago
-    warning_timer_seconds: 1200, // 20 mins remaining
-    status: "PENDING"
-  }
-];
+// 백엔드 Express API 서버의 기본 URL
+const API_BASE_URL = "http://localhost:5000";
 
 export default function Page() {
   // Global State
   const [perspective, setPerspective] = useState<"STUDENT" | "ADMIN">("STUDENT");
-  const [seats, setSeats] = useState<Seat[]>(INITIAL_SEATS);
-  const [absenceReports, setAbsenceReports] = useState<AbsenceReport[]>(INITIAL_REPORTS);
+  const [seats, setSeats] = useState<Seat[]>([]);
+  const [absenceReports, setAbsenceReports] = useState<AbsenceReport[]>([]);
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   
   // Timer speedup state (60x speed for testing)
@@ -125,14 +114,14 @@ export default function Page() {
   
   // Logged in Mock users
   const studentUser: Profile = {
-    id: "user-student-current",
+    id: "6ca7d934-8c8f-4a0b-8d5c-9cfaecb0d912", // Supabase UUID 포맷 예시
     university_id: "20222043",
     name: "강민성 (전자공학과)",
     role: "USER"
   };
 
   const adminUser: Profile = {
-    id: "user-admin-current",
+    id: "a3b2c1d0-1234-5678-9abc-def012345678", // Supabase UUID 포맷 예시
     university_id: "ADM-9942",
     name: "이영희 사서관",
     role: "ADMIN"
@@ -149,6 +138,26 @@ export default function Page() {
 
   // Active warning modal trigger (if my reserved seat goes into REPORTED_1ST)
   const [showWarningModal, setShowWarningModal] = useState<boolean>(false);
+
+  // 1. 백엔드 API로부터 최신 상태 정보(좌석 현황 및 신고 내역)를 조회하는 함수
+  const fetchData = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/seats`);
+      if (!res.ok) throw new Error("서버 에러 발생");
+      const data = await res.json();
+      setSeats(data.seats || []);
+      setAbsenceReports(data.absenceReports || []);
+    } catch (err) {
+      console.error("데이터 로드 실패:", err);
+    }
+  };
+
+  // 컴포넌트 마운트 시 및 3초 간격 주기적 폴링(실시간 동기화)
+  useEffect(() => {
+    fetchData(); // 최초 로드
+    const pollInterval = setInterval(fetchData, 3000);
+    return () => clearInterval(pollInterval);
+  }, []);
 
   // Monitor my seat status changes for warning popup
   useEffect(() => {
@@ -185,15 +194,8 @@ export default function Page() {
             const newSeconds = Math.max(0, seat.clearing_timer_seconds - decrement);
             
             if (newSeconds === 0) {
-              // Seat completes cleaning -> transitions back to AVAILABLE!
-              return {
-                ...seat,
-                status: "AVAILABLE",
-                current_user_id: undefined,
-                current_user_name: undefined,
-                current_reservation_id: undefined,
-                clearing_timer_seconds: undefined
-              };
+              // 타이머 만료 시 즉시 개방 완료를 위해 백엔드에 자동 요청 트리거
+              handleClearComplete(seat.id);
             }
             return {
               ...seat,
@@ -216,152 +218,152 @@ export default function Page() {
     }
   }, [seats]);
 
+  // 10분 정리 시간이 끝났거나 사서가 수동으로 비우는 헬퍼 함수
+  const handleClearComplete = async (seatId: number) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/absence-reports/clear-complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatId })
+      });
+      fetchData();
+    } catch (err) {
+      console.error("정리 완료 에러:", err);
+    }
+  };
+
   // Student Actions: Book Seat
-  const handleReserveSeat = (seatId: number) => {
-    setSeats((prev) =>
-      prev.map((s) =>
-        s.id === seatId
-          ? {
-              ...s,
-              status: "OCCUPIED",
-              current_user_id: studentUser.id,
-              current_user_name: `${studentUser.name}`,
-              current_reservation_id: Math.floor(Math.random() * 1000)
-            }
-          : s
-      )
-    );
+  const handleReserveSeat = async (seatId: number) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/reservations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatId, userId: studentUser.id })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "예약에 실패했습니다.");
+        return;
+      }
+      fetchData();
+    } catch (err) {
+      console.error("예약 에러:", err);
+    }
   };
 
   // Student Actions: Checkout/Release Seat
-  const handleCheckoutSeat = () => {
+  const handleCheckoutSeat = async () => {
     if (!myReservation) return;
-    const seatId = myReservation.id;
-    
-    setSeats((prev) =>
-      prev.map((s) =>
-        s.id === seatId
-          ? {
-              ...s,
-              status: "AVAILABLE",
-              current_user_id: undefined,
-              current_user_name: undefined,
-              current_reservation_id: undefined
-            }
-          : s
-      )
-    );
-
-    // Clear any active reports for my seat
-    setAbsenceReports((prev) =>
-      prev.map((r) =>
-        r.seat_id === seatId ? { ...r, status: "RESOLVED_RETURNED" } : r
-      )
-    );
-    setShowWarningModal(false);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/reservations/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatId: myReservation.id, userId: studentUser.id })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "반납에 실패했습니다.");
+        return;
+      }
+      setShowWarningModal(false);
+      fetchData();
+    } catch (err) {
+      console.error("반납 에러:", err);
+    }
   };
 
   // Student Actions: Confirm Return (Resets warning)
-  const handleConfirmReturn = () => {
+  const handleConfirmReturn = async () => {
     if (!myReservation) return;
-    const seatId = myReservation.id;
-
-    setSeats((prev) =>
-      prev.map((s) =>
-        s.id === seatId
-          ? {
-              ...s,
-              status: "OCCUPIED"
-            }
-          : s
-      )
-    );
-
-    setAbsenceReports((prev) =>
-      prev.map((r) =>
-        r.seat_id === seatId && r.status === "PENDING"
-          ? { ...r, status: "RESOLVED_RETURNED", warning_timer_seconds: undefined }
-          : r
-      )
-    );
-    setShowWarningModal(false);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/absence-reports/return`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatId: myReservation.id, userId: studentUser.id })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "복귀 확인 실패");
+        return;
+      }
+      setShowWarningModal(false);
+      fetchData();
+    } catch (err) {
+      console.error("복귀 처리 에러:", err);
+    }
   };
 
   // Student Actions: 1st Absence Report (Uploads 1st photo)
-  const handleReportAbsence1st = (seatId: number, photoUrl: string) => {
-    setSeats((prev) =>
-      prev.map((s) => (s.id === seatId ? { ...s, status: "REPORTED_1ST" } : s))
-    );
-
-    const newReport: AbsenceReport = {
-      id: absenceReports.length + 1,
-      seat_id: seatId,
-      reporter_id: studentUser.id,
-      first_photo_url: photoUrl,
-      first_reported_at: new Date().toISOString(),
-      warning_timer_seconds: 1800, // 30 minutes
-      status: "PENDING"
-    };
-
-    setAbsenceReports((prev) => [...prev, newReport]);
+  const handleReportAbsence1st = async (seatId: number, photoUrl: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/absence-reports/1st`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seatId,
+          reporterId: studentUser.id,
+          firstPhotoBase64: photoUrl
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "1차 신고 실패");
+        return;
+      }
+      fetchData();
+    } catch (err) {
+      console.error("1차 신고 에러:", err);
+    }
   };
 
   // Student Actions: 2nd Absence Report (Uploads 2nd photo after 30 mins)
-  const handleReportAbsence2nd = (seatId: number, photoUrl: string) => {
-    setSeats((prev) =>
-      prev.map((s) => (s.id === seatId ? { ...s, status: "REPORTED_2ND" } : s))
-    );
-
-    setAbsenceReports((prev) =>
-      prev.map((r) =>
-        r.seat_id === seatId && r.status === "PENDING"
-          ? {
-              ...r,
-              second_photo_url: photoUrl,
-              second_reported_at: new Date().toISOString(),
-              warning_timer_seconds: 0
-            }
-          : r
-      )
-    );
+  const handleReportAbsence2nd = async (seatId: number, photoUrl: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/absence-reports/2nd`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          seatId,
+          secondPhotoBase64: photoUrl
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.message || "2차 신고 실패");
+        return;
+      }
+      fetchData();
+    } catch (err) {
+      console.error("2차 신고 에러:", err);
+    }
   };
 
   // Admin Actions: Immediate release (즉시 빈자리 전환)
-  const handleImmediateRelease = (seatId: number) => {
+  const handleImmediateRelease = async (seatId: number) => {
     const seat = seats.find(s => s.id === seatId);
     if (!seat) return;
 
-    // Check if the current occupant is our active student, to trigger the forced release notification
     if (seat.current_user_id === studentUser.id) {
       setForcedCheckoutAlert({ show: true, seatNumber: seat.seat_number });
     }
 
-    setSeats((prev) =>
-      prev.map((s) =>
-        s.id === seatId
-          ? {
-              ...s,
-              status: "AVAILABLE",
-              current_user_id: undefined,
-              current_user_name: undefined,
-              current_reservation_id: undefined
-            }
-          : s
-      )
-    );
-
-    // Resolve reports
-    setAbsenceReports((prev) =>
-      prev.map((r) =>
-        r.seat_id === seatId && r.status === "PENDING"
-          ? { ...r, status: "RESOLVED_RELEASED", resolved_at: new Date().toISOString() }
-          : r
-      )
-    );
+    try {
+      // 1) 강제 퇴실 처리 (CLEARING으로 변환)
+      await fetch(`${API_BASE_URL}/api/absence-reports/release`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatId })
+      });
+      
+      // 2) 즉시 AVAILABLE로 강제 개방 완료 처리
+      await handleClearComplete(seatId);
+    } catch (err) {
+      console.error("즉시 개방 에러:", err);
+    }
   };
 
   // Admin Actions: Delayed release (물품 수거 및 자리 정리 - 10분 타이머)
-  const handleDelayedRelease = (seatId: number) => {
+  const handleDelayedRelease = async (seatId: number) => {
     const seat = seats.find(s => s.id === seatId);
     if (!seat) return;
 
@@ -369,25 +371,16 @@ export default function Page() {
       setForcedCheckoutAlert({ show: true, seatNumber: seat.seat_number });
     }
 
-    setSeats((prev) =>
-      prev.map((s) =>
-        s.id === seatId
-          ? {
-              ...s,
-              status: "CLEARING",
-              clearing_timer_seconds: 600 // 10 minutes
-            }
-          : s
-      )
-    );
-
-    setAbsenceReports((prev) =>
-      prev.map((r) =>
-        r.seat_id === seatId && r.status === "PENDING"
-          ? { ...r, status: "RESOLVED_RELEASED", resolved_at: new Date().toISOString() }
-          : r
-      )
-    );
+    try {
+      await fetch(`${API_BASE_URL}/api/absence-reports/release`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seatId })
+      });
+      fetchData();
+    } catch (err) {
+      console.error("정리 개방 에러:", err);
+    }
   };
 
   // Find active warnings for the student
