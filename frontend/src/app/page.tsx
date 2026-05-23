@@ -112,6 +112,8 @@ const FACILITIES: Facility[] = [
   { id: "lib-study-b", collegeId: "library", name: "창파도서관 1층 그룹스터디룸 B", roomName: "그룹스터디룸 B", category: "STUDY", tags: ["PC연결모니터", "유리화이트보드", "정원4명", "멀티탭"], capacity: 4, instantConfirm: true, buildingName: "중앙도서관 1층", description: "조원간 신속한 과제 검토 및 오피스 자료 작성이 가능한 실용적인 스터디룸" },
   { id: "lib-seminar", collegeId: "library", name: "창파도서관 2층 세미나홀", roomName: "세미나홀", category: "SEMINAR", tags: ["빔프로젝터", "마이크장비", "음향시설", "정원30명"], capacity: 30, instantConfirm: false, buildingName: "중앙도서관 2층", description: "학부 연합 발표, 대규모 세미나 및 초청 강연 등에 활용되는 다목적 홀" },
   { id: "lib-reading-1", collegeId: "library", name: "창파도서관 제1자율열람실", roomName: "제1자율열람실", category: "LIBRARY", tags: ["독서실형", "칸막이석", "노트북타이핑금지", "24시간개방"], capacity: 24, instantConfirm: true, buildingName: "중앙도서관 2층", description: "전형적인 정적 독서실 구조로 고도의 집중력을 요구하는 공부 전용 공간" },
+  { id: "lib-reading-2", collegeId: "library", name: "창파도서관 2층 자율열람실", roomName: "2층 열람실", category: "LIBRARY", tags: ["집중학습", "개인스탠드", "백색소음기", "24시간개방"], capacity: 28, instantConfirm: true, buildingName: "중앙도서관 2층", description: "집중 학습을 위한 칸막이형 열람석과 백색소음기가 구비된 쾌적한 학습 환경의 2층 열람실" },
+  { id: "lib-reading-5", collegeId: "library", name: "창파도서관 5층 자율열람실", roomName: "5층 열람실", category: "LIBRARY", tags: ["오픈형테이블", "노트북사용가능", "전망좋은곳", "멀티탭완비"], capacity: 32, instantConfirm: true, buildingName: "중앙도서관 5층", description: "넓은 창밖 전망을 즐기며 오픈형 테이블에서 자유롭게 공부 및 노트북 작업이 가능한 5층 열람실" },
 ];
 
 // Initial Mock Seats (24 Seats in total)
@@ -887,11 +889,11 @@ export default function Page() {
             <div className="absolute right-8 bottom-8 hidden md:flex items-center gap-4">
               <div className="bg-white/10 backdrop-blur-xs border border-white/10 px-4 py-2.5 rounded-2xl text-center">
                 <span className="text-[10px] text-emerald-200 font-bold block leading-none">대여 가능 시설</span>
-                <span className="text-xl font-bold font-mono mt-1 block">24개</span>
+                <span className="text-xl font-bold font-mono mt-1 block">{FACILITIES.length}개</span>
               </div>
               <div className="bg-white/10 backdrop-blur-xs border border-white/10 px-4 py-2.5 rounded-2xl text-center">
                 <span className="text-[10px] text-amber-300 font-bold block leading-none">즉시 확정 공간</span>
-                <span className="text-xl font-bold font-mono mt-1 block">17개</span>
+                <span className="text-xl font-bold font-mono mt-1 block">{FACILITIES.filter(f => f.instantConfirm).length}개</span>
               </div>
             </div>
           </div>
