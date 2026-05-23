@@ -16,8 +16,8 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- 2. 스토리지 객체에 대한 RLS 보안 설정 활성화
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+-- 2. 스토리지 객체에 대한 RLS 보안 설정 활성화 (Supabase 콘솔에선 기본 활성화되어 있어 에러 방지를 위해 주석 처리)
+-- ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 -- 기존에 동일한 정책이 존재할 경우 삭제하여 충돌 방지
 DROP POLICY IF EXISTS "누구나 증거 사진을 조회할 수 있습니다." ON storage.objects;
