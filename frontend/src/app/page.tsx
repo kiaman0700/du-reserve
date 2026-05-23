@@ -184,7 +184,7 @@ export default function Page() {
 
   // Selection & Filter States (통합 메인용)
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
-  const [facilityFilter, setFacilityFilter] = useState<"ALL" | "STUDY" | "SEMINAR" | "PC" | "LIBRARY">("ALL");
+  const [facilityFilter, setFacilityFilter] = useState<"ALL" | "STUDY" | "SEMINAR" | "PC" | "LIBRARY" | "CHANGPA">("ALL");
 
   // 상세 검색 상태 변수
   const [searchKeyword, setSearchKeyword] = useState<string>("");
@@ -267,6 +267,10 @@ export default function Page() {
 
   const myReservation = currentUser && myReservationFacilityId && selectedFacility && myReservationFacilityId === selectedFacility.id
     ? facilitySeats[selectedFacility.id]?.find(s => s.current_user_id === currentUser.id) || null
+    : null;
+
+  const activeStudentWarning = myReservation
+    ? absenceReports.find(r => r.seat_id === myReservation.id && r.status === "PENDING")
     : null;
 
   // Active warning modal trigger (if my reserved seat goes into REPORTED_1ST)
@@ -806,6 +810,7 @@ export default function Page() {
         if (facilityFilter === "SEMINAR" && fac.category !== "SEMINAR") return false;
         if (facilityFilter === "PC" && fac.category !== "PC") return false;
         if (facilityFilter === "LIBRARY" && fac.category !== "LIBRARY") return false;
+        if (facilityFilter === "CHANGPA" && fac.collegeId !== "library") return false;
       }
 
       // 3. 키워드 검색
@@ -967,6 +972,7 @@ export default function Page() {
               <div className="flex bg-white p-1 rounded-xl border border-slate-200/80 shadow-2xs w-fit">
                 {[
                   { label: "전체", key: "ALL" },
+                  { label: "창파도서관", key: "CHANGPA" },
                   { label: "스터디룸", key: "STUDY" },
                   { label: "세미나실", key: "SEMINAR" },
                   { label: "PC실/실습실", key: "PC" },
