@@ -27,7 +27,6 @@ import {
 import SeatMap from "@/components/SeatMap";
 import UserDashboard from "@/components/UserDashboard";
 import AdminPanel from "@/components/AdminPanel";
-import { supabase } from "@/supabaseClient";
 
 // Models & Types
 export type SeatStatus = "AVAILABLE" | "OCCUPIED" | "REPORTED_1ST" | "REPORTED_2ND" | "CLEARING";
@@ -197,8 +196,6 @@ const YellowDropsBackground = () => (
   </div>
 );
 
-
-
 export default function Page() {
   // Authentication & Session States
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -222,7 +219,7 @@ export default function Page() {
 
   // Global State for Reservation desk
   const [perspective, setPerspective] = useState<"STUDENT" | "ADMIN">("STUDENT");
-  const [absenceReports, setAbsenceReports] = useState<AbsenceReport[]>([]);
+  const [absenceReports, setAbsenceReports] = useState<AbsenceReport[]>(INITIAL_REPORTS);
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   
   // Timer speedup state (60x speed for testing)
@@ -235,211 +232,44 @@ export default function Page() {
   }>({ show: false, seatNumber: 0 });
 
   // ----------------------------------------------------
-  // REAL SUPABASE INTEGRATION STATES & METHODS
+  // INDEPENDENT SEAT STATES FOR EACH FACILITY
   // ----------------------------------------------------
   const [facilitySeats, setFacilitySeats] = useState<Record<string, Seat[]>>({});
 
-  // 1. Base64 사진 데이터를 바이너리로 변환하여 Supabase Storage에 직접 업로드하는 헬퍼 함수
-  const uploadPhotoToStorage = async (base64String: string, fileName: string): Promise<string> => {
-    try {
-      const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
-      const binary = atob(base64Data);
-      const array = [];
-      for (let i = 0; i < binary.length; i++) {
-        array.push(binary.charCodeAt(i));
-      }
-      const blob = new Blob([new Uint8Array(array)], { type: 'image/png' });
-
-      const { data, error } = await supabase.storage
-        .from('evidence-photos')
-        .upload(fileName, blob, {
-          contentType: 'image/png',
-          upsert: true
-        });
-
-      if (error) throw error;
-
-      const { data: urlData } = supabase.storage
-        .from('evidence-photos')
-        .getPublicUrl(fileName);
-
-      return urlData.publicUrl;
-    } catch (err: any) {
-      console.error('스토리지 이미지 업로드 에러:', err);
-      throw new Error('사진 파일 업로드 중 에러가 발생했습니다: ' + err.message);
-    }
-  };
-
-  // 2. 선택한 시설물(열람실 구역)에 맞추어 DB에서 실시간 좌석 현황과 대기중인 신고를 가져오는 핵심 동기화 함수
-  const fetchSeatsAndReports = async () => {
-    if (!selectedFacility) return;
-    try {
-      // A. 해당 열람실의 전체 좌석 조회
-      const { data: seatsData, error: seatsErr } = await supabase
-        .from('seats')
-        .select('*')
-        .eq('room_name', selectedFacility.roomName)
-        .order('seat_number', { ascending: true });
-
-      if (seatsErr) throw seatsErr;
-
-      // B. 활성 상태인 전체 예약 데이터 조회
-      const { data: resData, error: resErr } = await supabase
-        .from('reservations')
-        .select(`
-          id,
-          seat_id,
-          user_id,
-          status,
-          profiles (
-            university_id,
-            name
-          )
-        `)
-        .eq('status', 'ACTIVE');
-
-      if (resErr) throw resErr;
-
-      // C. 해당 열람실의 PENDING(대기중)인 부재 신고 조회
-      const { data: reportsData, error: reportsErr } = await supabase
-        .from('absence_reports')
-        .select('*')
-        .eq('status', 'PENDING');
-
-      if (reportsErr) throw reportsErr;
-
-      // D. 프론트엔드 facilitySeats 상태에 맞추어 조립 및 가공
-      const mappedSeats = (seatsData || []).map((seat: any) => {
-        const activeRes = resData?.find((r: any) => r.seat_id === seat.id);
-        
-        let occupantName = undefined;
-        if (activeRes && activeRes.profiles) {
-          const profile: any = Array.isArray(activeRes.profiles) ? activeRes.profiles[0] : activeRes.profiles;
-          if (profile) occupantName = `${profile.name} (${profile.university_id})`;
-        }
-
-        return {
-          id: seat.id,
-          seat_number: seat.seat_number,
-          room_name: seat.room_name,
-          status: seat.status as SeatStatus,
-          current_user_id: activeRes ? activeRes.user_id : undefined,
-          current_user_name: occupantName,
-          current_reservation_id: activeRes ? activeRes.id : undefined,
-          clearing_timer_seconds: seat.clearing_timer_seconds || undefined,
-          use_timer_seconds: seat.use_timer_seconds || undefined,
-          total_duration_minutes: seat.total_duration_minutes || undefined,
-          reserved_at: seat.reserved_at || undefined,
-          ends_at: seat.ends_at || undefined
-        };
-      });
-
-      setFacilitySeats(prev => ({
-        ...prev,
-        [selectedFacility.id]: mappedSeats
-      }));
-
-      // E. 진행 중인 신고 목록 가공
-      const mappedReports = (reportsData || []).map((report: any) => {
-        const firstReportedAt = new Date(report.first_reported_at).getTime();
-        const now = Date.now();
-        const elapsed = Math.floor((now - firstReportedAt) / 1000);
-        const warningTimerSeconds = Math.max(0, 1800 - elapsed);
-
-        return {
-          id: report.id,
-          seat_id: report.seat_id,
-          reporter_id: report.reporter_id,
-          first_photo_url: report.first_photo_url,
-          first_reported_at: report.first_reported_at,
-          second_photo_url: report.second_photo_url || undefined,
-          second_reported_at: report.second_reported_at || undefined,
-          warning_timer_seconds: warningTimerSeconds,
-          status: report.status
-        };
-      });
-
-      setAbsenceReports(mappedReports);
-    } catch (err) {
-      console.error('실시간 데이터 조회 실패:', err);
-    }
-  };
-
-  // 3. Supabase Auth 가입 및 로그인 동기화 감지 (최초 로드 시 세션 복구)
+  // Initialize seats for each facility on component load
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && session.user) {
-        setIsLoggedIn(true);
-        // profiles 테이블에서 세부 인적 사항 획득
-        supabase.from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-          .then(({ data: profile }) => {
-            if (profile) {
-              setCurrentUser({
-                id: profile.id,
-                university_id: profile.university_id,
-                name: profile.name,
-                role: profile.role as "USER" | "ADMIN"
-              });
-              setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
-            }
-          });
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session && session.user) {
-        setIsLoggedIn(true);
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-        if (profile) {
-          setCurrentUser({
-            id: profile.id,
-            university_id: profile.university_id,
-            name: profile.name,
-            role: profile.role as "USER" | "ADMIN"
-          });
-          setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
+    const seatMapInit: Record<string, Seat[]> = {};
+    FACILITIES.forEach(fac => {
+      seatMapInit[fac.id] = INITIAL_SEATS.map((seat, idx) => {
+        if (seat.id === 3 || seat.id === 7 || seat.id === 15) {
+          return { ...seat };
         }
-      } else {
-        setIsLoggedIn(false);
-        setCurrentUser(null);
-      }
+        const hash = fac.id.charCodeAt(0) + fac.id.charCodeAt(1) + idx;
+        if (hash % 7 === 0) {
+          return {
+            ...seat,
+            status: "OCCUPIED" as SeatStatus,
+            current_user_id: `mock-user-${hash}`,
+            current_user_name: `임의학생 (학부생)`,
+            current_reservation_id: 1000 + hash
+          };
+        }
+        return { ...seat };
+      });
     });
-
-    return () => subscription.unsubscribe();
+    setFacilitySeats(seatMapInit);
   }, []);
-
-  // 4. 시설물 선택 또는 데이터 갱신 시 실시간 PostgreSQL WebSocket 채널 구독 켜기 (Realtime Sync)
-  useEffect(() => {
-    if (!selectedFacility) return;
-    fetchSeatsAndReports();
-
-    const seatChannel = supabase.channel(`realtime:${selectedFacility.id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'seats' }, () => {
-        fetchSeatsAndReports();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'absence_reports' }, () => {
-        fetchSeatsAndReports();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(seatChannel);
-    };
-  }, [selectedFacility]);
 
   // Currently active seats array based on selected facility
   const activeSeats = selectedFacility && facilitySeats[selectedFacility.id]
     ? facilitySeats[selectedFacility.id]
-    : [];
+    : INITIAL_SEATS;
 
-  // Helper for setting seats locally (if still needed anywhere, fallback compatibility)
+  // Update helper for facility seats
   const setSeats = (updater: Seat[] | ((prev: Seat[]) => Seat[])) => {
     if (!selectedFacility) return;
     setFacilitySeats(prev => {
-      const current = prev[selectedFacility.id] || [];
+      const current = prev[selectedFacility.id] || INITIAL_SEATS;
       const nextSeats = typeof updater === "function" ? updater(current) : updater;
       return {
         ...prev,
@@ -475,7 +305,7 @@ export default function Page() {
     }
   }, [myReservation?.status]);
 
-  // Timers local countdown management effect
+  // Timers management effect
   useEffect(() => {
     const interval = setInterval(() => {
       // 1. Tick Warning timers
@@ -504,13 +334,14 @@ export default function Page() {
             if (seat.status === "CLEARING" && seat.clearing_timer_seconds !== undefined) {
               const newSeconds = Math.max(0, seat.clearing_timer_seconds - decrement);
               if (newSeconds === 0) {
-                // 타이머 만료 시 DB AVAILABLE 업데이트 자동 처리
-                supabase.from('seats').update({
-                  status: 'AVAILABLE',
-                  current_reservation_id: null,
-                  clearing_timer_seconds: null,
-                  updated_at: new Date().toISOString()
-                }).eq('id', seat.id).then(() => fetchSeatsAndReports());
+                return {
+                  ...seat,
+                  status: "AVAILABLE",
+                  current_user_id: undefined,
+                  current_user_name: undefined,
+                  current_reservation_id: undefined,
+                  clearing_timer_seconds: undefined
+                };
               }
               return {
                 ...seat,
@@ -522,16 +353,17 @@ export default function Page() {
             if ((seat.status === "OCCUPIED" || seat.status === "REPORTED_1ST") && seat.use_timer_seconds !== undefined) {
               const newSeconds = Math.max(0, seat.use_timer_seconds - decrement);
               if (newSeconds === 0) {
-                // 타이머 만료 시 DB 반납 자동 처리
-                supabase.from('seats').update({
-                  status: 'AVAILABLE',
-                  current_reservation_id: null,
-                  use_timer_seconds: null,
-                  total_duration_minutes: null,
-                  reserved_at: null,
-                  ends_at: null,
-                  updated_at: new Date().toISOString()
-                }).eq('id', seat.id).then(() => fetchSeatsAndReports());
+                return {
+                  ...seat,
+                  status: "AVAILABLE",
+                  current_user_id: undefined,
+                  current_user_name: undefined,
+                  current_reservation_id: undefined,
+                  reserved_at: undefined,
+                  ends_at: undefined,
+                  use_timer_seconds: undefined,
+                  total_duration_minutes: undefined
+                };
               }
               return {
                 ...seat,
@@ -552,14 +384,14 @@ export default function Page() {
   // Update selected seat details whenever active seats list changes
   useEffect(() => {
     if (selectedSeat && selectedFacility) {
-      const currentList = facilitySeats[selectedFacility.id] || [];
+      const currentList = facilitySeats[selectedFacility.id] || INITIAL_SEATS;
       const updated = currentList.find(s => s.id === selectedSeat.id);
       if (updated) setSelectedSeat(updated);
     }
   }, [facilitySeats, selectedFacility]);
 
-  // Login handler using Supabase Auth
-  const handleLogin = async (e: React.FormEvent) => {
+  // Login handler
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
@@ -573,118 +405,61 @@ export default function Page() {
         return;
       }
 
-      const email = `${studentIdInput.trim()}@daegu.ac.kr`;
-      const password = `${studentIdInput.trim()}_daegu!`;
-
-      // 1) 로그인 시도
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const profile: Profile = {
+        id: `student-${studentIdInput.trim()}`,
+        university_id: studentIdInput.trim(),
+        name: `${studentNameInput.trim()} (${getRandomDepartment()})`,
+        role: "USER"
+      };
       
-      if (error) {
-        // 2) 로그인 실패 시 회원가입 (포털 연동 가입 대행)
-        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              university_id: studentIdInput.trim(),
-              name: `${studentNameInput.trim()} (${getRandomDepartment()})`,
-              role: 'USER'
-            }
-          }
-        });
-
-        if (signUpErr) {
-          setLoginError("포털 인증 과정에서 오류가 발생했습니다: " + signUpErr.message);
-          return;
-        }
-
-        // 가입 완료 후 로그인 세션 재시도
-        await supabase.auth.signInWithPassword({ email, password });
-      }
+      setCurrentUser(profile);
+      setIsLoggedIn(true);
+      setPerspective("STUDENT");
     } else {
       if (!adminCodeInput.trim()) {
         setLoginError("관리자 비밀코드를 입력해 주세요.");
         return;
       }
 
-      const email = `${adminCodeInput.trim()}@daegu.ac.kr`;
-      const password = `admin_daegu_2026!`;
+      const profile: Profile = {
+        id: "admin-session-current",
+        university_id: "ADM-9942",
+        name: "이영희 사서관",
+        role: "ADMIN"
+      };
 
-      // 1) 관리자 로그인 시도
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-      if (error) {
-        // 2) 가입 처리 대행
-        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              university_id: adminCodeInput.trim(),
-              name: "이영희 사서관",
-              role: 'ADMIN'
-            }
-          }
-        });
-
-        if (signUpErr) {
-          setLoginError("관리자 인증 처리 중 오류가 발생했습니다: " + signUpErr.message);
-          return;
-        }
-
-        await supabase.auth.signInWithPassword({ email, password });
-      }
+      setCurrentUser(profile);
+      setIsLoggedIn(true);
+      setPerspective("ADMIN");
     }
   };
 
-  // Demo direct login helpers (연동 지원)
-  const loginAsDemoStudent = async () => {
-    setStudentIdInput("20222043");
-    setStudentNameInput("강민성");
-    const email = "20222043@daegu.ac.kr";
-    const password = "20222043_daegu!";
-    
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            university_id: "20222043",
-            name: "강민성 (전자공학과)",
-            role: 'USER'
-          }
-        }
-      });
-      await supabase.auth.signInWithPassword({ email, password });
-    }
+  // Demo direct login helpers
+  const loginAsDemoStudent = () => {
+    const profile: Profile = {
+      id: "user-student-current",
+      university_id: "20222043",
+      name: "강민성 (전자공학과)",
+      role: "USER"
+    };
+    setCurrentUser(profile);
+    setIsLoggedIn(true);
+    setPerspective("STUDENT");
   };
 
-  const loginAsDemoAdmin = async () => {
-    setAdminCodeInput("ADM-9942");
-    const email = "ADM-9942@daegu.ac.kr";
-    const password = "admin_daegu_2026!";
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            university_id: "ADM-9942",
-            name: "이영희 사서관",
-            role: 'ADMIN'
-          }
-        }
-      });
-      await supabase.auth.signInWithPassword({ email, password });
-    }
+  const loginAsDemoAdmin = () => {
+    const profile: Profile = {
+      id: "user-admin-current",
+      university_id: "ADM-9942",
+      name: "이영희 사서관",
+      role: "ADMIN"
+    };
+    setCurrentUser(profile);
+    setIsLoggedIn(true);
+    setPerspective("ADMIN");
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const handleLogout = () => {
     setIsLoggedIn(false);
     setCurrentUser(null);
     setSelectedFacility(null);
@@ -703,173 +478,176 @@ export default function Page() {
     setFacilityFilter("ALL");
   };
 
+  // Helper for random mock departments
   const getRandomDepartment = () => {
     const depts = ["전자공학과", "컴퓨터공학과", "정보통신학과", "기계공학과", "경영학과", "문헌정보학과"];
     return depts[Math.floor(Math.random() * depts.length)];
   };
 
-  // Student Actions: Book Seat (Supabase RPC reserve_seat 연동)
-  const handleReserveSeat = async (seatId: number, durationMinutes: number) => {
+  // Student Actions: Book Seat
+  const handleReserveSeat = (seatId: number, durationMinutes: number) => {
     if (!currentUser) return;
-    try {
-      // A. reserve_seat RPC 함수 실행
-      const { data: resId, error } = await supabase.rpc('reserve_seat', {
-        p_seat_id: seatId,
-        p_user_id: currentUser.id
-      });
+    const now = new Date();
+    const end = new Date(now.getTime() + durationMinutes * 60 * 1000);
+    
+    const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
-      if (error) {
-        alert(error.message || "예약에 실패했습니다.");
-        return;
-      }
-
-      // B. 이용 시간 및 타이머 정보를 seats 테이블에 반영
-      const now = new Date();
-      const end = new Date(now.getTime() + durationMinutes * 60 * 1000);
-      const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
-      await supabase.from('seats').update({
-        use_timer_seconds: durationMinutes * 60,
-        total_duration_minutes: durationMinutes,
-        reserved_at: reserved_at_str,
-        ends_at: ends_at_str
-      }).eq('id', seatId);
-
-      fetchSeatsAndReports();
-    } catch (err: any) {
-      console.error("예약 실패:", err);
-    }
+    setSeats((prev) =>
+      prev.map((s) =>
+        s.id === seatId
+          ? {
+              ...s,
+              status: "OCCUPIED",
+              current_user_id: currentUser.id,
+              current_user_name: `${currentUser.name}`,
+              current_reservation_id: Math.floor(Math.random() * 1000),
+              reserved_at: reserved_at_str,
+              ends_at: ends_at_str,
+              use_timer_seconds: durationMinutes * 60,
+              total_duration_minutes: durationMinutes
+            }
+          : s
+      )
+    );
   };
 
   // Student Actions: Extend Seat Use Time
-  const handleExtendSeat = async (seatId: number, extendMinutes: number) => {
-    try {
-      const now = new Date();
-      const end = new Date(now.getTime() + extendMinutes * 60 * 1000);
-      const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
-      await supabase.from('seats').update({
-        ends_at: ends_at_str,
-        use_timer_seconds: extendMinutes * 60,
-        total_duration_minutes: extendMinutes
-      }).eq('id', seatId);
-
-      fetchSeatsAndReports();
-    } catch (err: any) {
-      console.error("시간 연장 실패:", err);
-    }
+  const handleExtendSeat = (seatId: number, extendMinutes: number) => {
+    const now = new Date();
+    const end = new Date(now.getTime() + extendMinutes * 60 * 1000);
+    
+    const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    
+    setSeats((prev) =>
+      prev.map((s) =>
+        s.id === seatId
+          ? {
+              ...s,
+              ends_at: ends_at_str,
+              use_timer_seconds: extendMinutes * 60,
+              total_duration_minutes: extendMinutes
+            }
+          : s
+      )
+    );
   };
 
-  // Student Actions: Checkout/Release Seat (Supabase RPC return_seat 연동)
-  const handleCheckoutSeat = async () => {
-    if (!currentUser || !myReservation) return;
-    try {
-      // A. return_seat RPC 실행
-      const { error } = await supabase.rpc('return_seat', {
-        p_seat_id: myReservation.id,
-        p_user_id: currentUser.id
-      });
-
-      if (error) {
-        alert(error.message || "반납에 실패했습니다.");
-        return;
-      }
-
-      // B. 좌석 확장 컬럼들 초기화
-      await supabase.from('seats').update({
-        use_timer_seconds: null,
-        total_duration_minutes: null,
-        reserved_at: null,
-        ends_at: null
-      }).eq('id', myReservation.id);
-
-      // C. 대기 중인 본인 자리 신고가 있다면 해제 처리
-      await supabase.from('absence_reports')
-        .update({ status: 'RESOLVED_RETURNED', resolved_at: new Date().toISOString() })
-        .eq('seat_id', myReservation.id)
-        .eq('status', 'PENDING');
-
-      setShowWarningModal(false);
-      fetchSeatsAndReports();
-    } catch (err: any) {
-      console.error("반납 에러:", err);
-    }
-  };
-
-  // Student Actions: Confirm Return (Resets warning - Supabase RPC confirm_user_returned 연동)
-  const handleConfirmReturn = async () => {
-    if (!currentUser || !myReservation) return;
-    try {
-      const { error } = await supabase.rpc('confirm_user_returned', {
-        p_seat_id: myReservation.id,
-        p_user_id: currentUser.id
-      });
-
-      if (error) {
-        alert(error.message || "복귀 처리에 실패했습니다.");
-        return;
-      }
-
-      setShowWarningModal(false);
-      fetchSeatsAndReports();
-    } catch (err: any) {
-      console.error("복귀 처리 에러:", err);
-    }
-  };
-
-  // Student Actions: 1st Absence Report (Supabase RPC submit_absence_report_1st 연동)
-  const handleReportAbsence1st = async (seatId: number, photoUrl: string) => {
+  // Student Actions: Checkout/Release Seat
+  const handleCheckoutSeat = () => {
     if (!currentUser) return;
-    try {
-      // A. Base64 이미지를 Supabase Storage에 직접 업로드
-      const fileName = `report_1st_${seatId}_${Date.now()}.png`;
-      const uploadedUrl = await uploadPhotoToStorage(photoUrl, fileName);
+    
+    const reservedFacId = Object.keys(facilitySeats).find(facId => {
+      return facilitySeats[facId]?.some(s => s.current_user_id === currentUser.id);
+    });
 
-      // B. submit_absence_report_1st RPC 실행
-      const { data: reportId, error } = await supabase.rpc('submit_absence_report_1st', {
-        p_seat_id: seatId,
-        p_reporter_id: currentUser.id,
-        p_photo_url: uploadedUrl
-      });
+    if (!reservedFacId) return;
 
-      if (error) {
-        alert(error.message || "1차 신고 처리에 실패했습니다.");
-        return;
-      }
+    setFacilitySeats(prev => {
+      const nextMap = { ...prev };
+      nextMap[reservedFacId] = nextMap[reservedFacId].map(s => 
+        s.current_user_id === currentUser.id
+          ? {
+              ...s,
+              status: "AVAILABLE",
+              current_user_id: undefined,
+              current_user_name: undefined,
+              current_reservation_id: undefined
+            }
+          : s
+      );
+      return nextMap;
+    });
 
-      fetchSeatsAndReports();
-    } catch (err: any) {
-      console.error("1차 신고 에러:", err);
+    const activeStudentSeat = facilitySeats[reservedFacId]?.find(s => s.current_user_id === currentUser.id);
+    if (activeStudentSeat) {
+      setAbsenceReports((prev) =>
+        prev.map((r) =>
+          r.seat_id === activeStudentSeat.id ? { ...r, status: "RESOLVED_RETURNED" } : r
+        )
+      );
     }
+    setShowWarningModal(false);
   };
 
-  // Student Actions: 2nd Absence Report (Supabase RPC submit_absence_report_2nd 연동)
-  const handleReportAbsence2nd = async (seatId: number, photoUrl: string) => {
-    try {
-      // A. Base64 이미지를 Supabase Storage에 업로드
-      const fileName = `report_2nd_${seatId}_${Date.now()}.png`;
-      const uploadedUrl = await uploadPhotoToStorage(photoUrl, fileName);
+  // Student Actions: Confirm Return (Resets warning)
+  const handleConfirmReturn = () => {
+    if (!currentUser) return;
+    
+    const reservedFacId = Object.keys(facilitySeats).find(facId => {
+      return facilitySeats[facId]?.some(s => s.current_user_id === currentUser.id);
+    });
 
-      // B. submit_absence_report_2nd RPC 실행
-      const { error } = await supabase.rpc('submit_absence_report_2nd', {
-        p_seat_id: seatId,
-        p_photo_url: uploadedUrl
-      });
+    if (!reservedFacId) return;
 
-      if (error) {
-        alert(error.message || "2차 최종 신고에 실패했습니다.");
-        return;
-      }
+    const myReservedSeat = facilitySeats[reservedFacId]?.find(s => s.current_user_id === currentUser.id);
+    if (!myReservedSeat) return;
 
-      fetchSeatsAndReports();
-    } catch (err: any) {
-      console.error("2차 신고 에러:", err);
-    }
+    setFacilitySeats(prev => {
+      const nextMap = { ...prev };
+      nextMap[reservedFacId] = nextMap[reservedFacId].map(s => 
+        s.current_user_id === currentUser.id
+          ? {
+              ...s,
+              status: "OCCUPIED"
+            }
+          : s
+      );
+      return nextMap;
+    });
+
+    setAbsenceReports((prev) =>
+      prev.map((r) =>
+        r.seat_id === myReservedSeat.id && r.status === "PENDING"
+          ? { ...r, status: "RESOLVED_RETURNED", warning_timer_seconds: undefined }
+          : r
+      )
+    );
+    setShowWarningModal(false);
   };
 
-  // Admin Actions: Immediate release (즉시 개방)
-  const handleImmediateRelease = async (seatId: number) => {
+  // Student Actions: 1st Absence Report
+  const handleReportAbsence1st = (seatId: number, photoUrl: string) => {
+    if (!currentUser) return;
+    setSeats((prev) =>
+      prev.map((s) => (s.id === seatId ? { ...s, status: "REPORTED_1ST" } : s))
+    );
+
+    const newReport: AbsenceReport = {
+      id: absenceReports.length + 1,
+      seat_id: seatId,
+      reporter_id: currentUser.id,
+      first_photo_url: photoUrl,
+      first_reported_at: new Date().toISOString(),
+      warning_timer_seconds: 1800,
+      status: "PENDING"
+    };
+
+    setAbsenceReports((prev) => [...prev, newReport]);
+  };
+
+  // Student Actions: 2nd Absence Report
+  const handleReportAbsence2nd = (seatId: number, photoUrl: string) => {
+    setSeats((prev) =>
+      prev.map((s) => (s.id === seatId ? { ...s, status: "REPORTED_2ND" } : s))
+    );
+
+    setAbsenceReports((prev) =>
+      prev.map((r) =>
+        r.seat_id === seatId && r.status === "PENDING"
+          ? {
+              ...r,
+              second_photo_url: photoUrl,
+              second_reported_at: new Date().toISOString(),
+              warning_timer_seconds: 0
+            }
+          : r
+      )
+    );
+  };
+
+  // Admin Actions: Immediate release
+  const handleImmediateRelease = (seatId: number) => {
     if (!selectedFacility) return;
     const seat = activeSeats.find(s => s.id === seatId);
     if (!seat) return;
@@ -878,38 +656,31 @@ export default function Page() {
       setForcedCheckoutAlert({ show: true, seatNumber: seat.seat_number });
     }
 
-    try {
-      const currentResId = seat.current_reservation_id;
+    setSeats((prev) =>
+      prev.map((s) =>
+        s.id === seatId
+          ? {
+              ...s,
+              status: "AVAILABLE",
+              current_user_id: undefined,
+              current_user_name: undefined,
+              current_reservation_id: undefined
+            }
+          : s
+      )
+    );
 
-      // A. 즉시 AVAILABLE 상태로 변경
-      await supabase.from('seats').update({
-        status: 'AVAILABLE',
-        current_reservation_id: null,
-        use_timer_seconds: null,
-        total_duration_minutes: null,
-        reserved_at: null,
-        ends_at: null,
-        clearing_timer_seconds: null,
-        updated_at: new Date().toISOString()
-      }).eq('id', seatId);
-
-      // B. 대기 중인 신고 종결
-      if (currentResId) {
-        await supabase.from('absence_reports').update({
-          status: 'RESOLVED_RELEASED',
-          release_type: 'IMMEDIATE',
-          resolved_at: new Date().toISOString()
-        }).eq('reservation_id', currentResId).eq('status', 'PENDING');
-      }
-
-      fetchSeatsAndReports();
-    } catch (err) {
-      console.error("즉시 개방 실패:", err);
-    }
+    setAbsenceReports((prev) =>
+      prev.map((r) =>
+        r.seat_id === seatId && r.status === "PENDING"
+          ? { ...r, status: "RESOLVED_RELEASED", resolved_at: new Date().toISOString() }
+          : r
+      )
+    );
   };
 
-  // Admin Actions: Delayed release (10분 물품 정리 상태로 개방 대기)
-  const handleDelayedRelease = async (seatId: number) => {
+  // Admin Actions: Delayed release
+  const handleDelayedRelease = (seatId: number) => {
     if (!selectedFacility) return;
     const seat = activeSeats.find(s => s.id === seatId);
     if (!seat) return;
@@ -918,33 +689,25 @@ export default function Page() {
       setForcedCheckoutAlert({ show: true, seatNumber: seat.seat_number });
     }
 
-    try {
-      const currentResId = seat.current_reservation_id;
+    setSeats((prev) =>
+      prev.map((s) =>
+        s.id === seatId
+          ? {
+              ...s,
+              status: "CLEARING",
+              clearing_timer_seconds: 600
+            }
+          : s
+      )
+    );
 
-      // A. CLEARING 상태로 변경 및 600초(10분) 스케줄러 가동
-      await supabase.from('seats').update({
-        status: 'CLEARING',
-        clearing_timer_seconds: 600,
-        use_timer_seconds: null,
-        total_duration_minutes: null,
-        reserved_at: null,
-        ends_at: null,
-        updated_at: new Date().toISOString()
-      }).eq('id', seatId);
-
-      // B. 대기 중인 신고 종결
-      if (currentResId) {
-        await supabase.from('absence_reports').update({
-          status: 'RESOLVED_RELEASED',
-          release_type: 'DELAYED_10MIN',
-          resolved_at: new Date().toISOString()
-        }).eq('reservation_id', currentResId).eq('status', 'PENDING');
-      }
-
-      fetchSeatsAndReports();
-    } catch (err) {
-      console.error("정리 개방 실패:", err);
-    }
+    setAbsenceReports((prev) =>
+      prev.map((r) =>
+        r.seat_id === seatId && r.status === "PENDING"
+          ? { ...r, status: "RESOLVED_RELEASED", resolved_at: new Date().toISOString() }
+          : r
+      )
+    );
   };
 
   // ----------------------------------------------------
