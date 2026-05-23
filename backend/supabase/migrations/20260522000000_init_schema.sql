@@ -367,8 +367,13 @@ WITH CHECK (auth.uid() = reporter_id);
 -- 매 1분마다 CLEARING 상태로 들어간 지 10분이 지난 좌석을 자동으로 AVAILABLE(빈자리)로 변경합니다.
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
--- 기존에 동일한 크론이 등록되어 있다면 등록 해제
-SELECT cron.unschedule('clear-expired-seats');
+-- 기존에 동일한 크론이 등록되어 있다면 안전하게 등록 해제
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'clear-expired-seats') THEN
+    PERFORM cron.unschedule('clear-expired-seats');
+  END IF;
+END $$;
 
 -- 크론 스케줄 등록
 SELECT cron.schedule(
