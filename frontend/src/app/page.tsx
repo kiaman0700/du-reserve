@@ -182,6 +182,20 @@ const INITIAL_REPORTS: AbsenceReport[] = [
   }
 ];
 
+// 백그라운드 노란색/연두색 감성 물방울 데코 블롭 컴포넌트
+const YellowDropsBackground = () => (
+  <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+    {/* 우측 상단 노란 물방울 */}
+    <div className="absolute top-[10%] right-[-5%] w-[350px] h-[350px] rounded-full bg-yellow-200/20 blur-[80px] animate-pulse" style={{ animationDuration: "8s" }} />
+    {/* 좌측 중간 연한 노란 물방울 */}
+    <div className="absolute top-[45%] left-[-10%] w-[400px] h-[400px] rounded-full bg-amber-100/15 blur-[100px] animate-pulse" style={{ animationDuration: "12s" }} />
+    {/* 우측 하단 노란 물방울 */}
+    <div className="absolute bottom-[5%] right-[10%] w-[300px] h-[300px] rounded-full bg-yellow-300/10 blur-[90px] animate-pulse" style={{ animationDuration: "10s" }} />
+    {/* 중앙 상단 연한 연두/노란 물방울 */}
+    <div className="absolute top-[-5%] left-[30%] w-[250px] h-[250px] rounded-full bg-lime-100/20 blur-[70px] animate-pulse" style={{ animationDuration: "9s" }} />
+  </div>
+);
+
 export default function Page() {
   // Authentication & Session States
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -701,7 +715,8 @@ export default function Page() {
   // ----------------------------------------------------
   if (!isLoggedIn || !currentUser) {
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-emerald-50 via-lime-50/20 to-white text-slate-800 animate-gradient-x">
+      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-emerald-50 via-lime-50/20 to-white text-slate-800 animate-gradient-x relative">
+        <YellowDropsBackground />
         <header className="w-full py-4 px-6 flex justify-between items-center border-b border-slate-200/50 bg-white/40 backdrop-blur-xs">
           <div className="flex items-center space-x-2">
             <img src="/logo.png" alt="Daegu University Logo" className="h-8 w-8 object-contain" />
@@ -893,7 +908,8 @@ export default function Page() {
     });
 
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-emerald-50 via-lime-50/20 to-white text-slate-800 animate-gradient-x">
+      <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-emerald-50 via-lime-50/20 to-white text-slate-800 animate-gradient-x relative">
+        <YellowDropsBackground />
         {/* Navbar */}
         <header className="sticky top-0 z-40 bg-white/80 border-b border-slate-200/50 backdrop-blur-md shadow-xs">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -1169,7 +1185,8 @@ export default function Page() {
   // RENDER: Core Portal Screen (when facility is selected) (3단계)
   // ----------------------------------------------------
   return (
-    <div className="flex-grow flex flex-col min-h-screen bg-slate-50 text-slate-800 pb-16">
+    <div className="flex-grow flex flex-col min-h-screen bg-slate-50 text-slate-800 pb-16 relative">
+      <YellowDropsBackground />
       {/* Top Navbar */}
       <header className="sticky top-0 z-40 bg-white/90 border-b border-slate-200 backdrop-blur-md shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
