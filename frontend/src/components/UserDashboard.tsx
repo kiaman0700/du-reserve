@@ -35,11 +35,12 @@ interface UserDashboardProps {
   selectedSeat: Seat | null;
   userReservation: Seat | null;
   absenceReports: AbsenceReport[];
-  onReserve: (seatId: number) => void;
+  onReserve: (seatId: number, durationMinutes: number) => void;
   onCheckout: () => void;
   onConfirmReturn: () => void;
   onReportAbsence1st: (seatId: number, photo: string) => void;
   onReportAbsence2nd: (seatId: number, photo: string) => void;
+  onExtendSeat?: (seatId: number, extendMinutes: number) => void;
   timerSpeedUp: boolean;
   setTimerSpeedUp: (val: boolean) => void;
   selectedFacility: Facility | null;
@@ -55,6 +56,7 @@ export default function UserDashboard({
   onConfirmReturn,
   onReportAbsence1st,
   onReportAbsence2nd,
+  onExtendSeat,
   timerSpeedUp,
   setTimerSpeedUp,
   selectedFacility
@@ -62,6 +64,23 @@ export default function UserDashboard({
   const [showCamera, setShowCamera] = useState<boolean>(false);
   const [cameraPurpose, setCameraPurpose] = useState<"1ST" | "2ND">("1ST");
   const [reportingSeatId, setReportingSeatId] = useState<number | null>(null);
+
+  const [selectedDuration, setSelectedDuration] = useState<number>(180); // 기본 3시간 (180분)
+  const [selectedExtension, setSelectedExtension] = useState<number>(180); // 연장 기본 3시간
+
+  const formatSecondsToTime = (totalSeconds?: number) => {
+    if (totalSeconds === undefined) return "정보 없음";
+    if (totalSeconds <= 0) return "만료됨";
+    
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}시간 ${minutes}분 ${seconds}초`;
+    }
+    return `${minutes}분 ${seconds}초`;
+  };
 
   // Find active report for the selected seat
   const activeReport = selectedSeat 
@@ -146,6 +165,51 @@ export default function UserDashboard({
         )}
       </div>
 
+      {/* 이용 시간 만료 임박(10분 이하) 알림 배너 */}
+      {userReservation && userReservation.use_timer_seconds !== undefined && userReservation.use_timer_seconds <= 600 && (
+        <div className="rounded-2xl bg-amber-50 border border-amber-300 p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-fade-in">
+          <div className="flex items-center space-x-3.5">
+            <div className="p-2.5 bg-amber-100 rounded-xl text-amber-600 border border-amber-250">
+              <Clock className="h-6 w-6 animate-pulse" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">⚠️ 좌석 이용 시간 만료 임박 안내</h4>
+              <p className="text-xs text-slate-600 mt-0.5 font-medium">
+                현재 사용 중인 좌석의 남은 이용 시간이 <strong className="text-amber-700 font-mono text-sm">{formatSecondsToTime(userReservation.use_timer_seconds)}</strong> 남았습니다.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 w-full md:w-auto">
+            <select
+              value={selectedExtension}
+              onChange={(e) => setSelectedExtension(Number(e.target.value))}
+              className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-700 cursor-pointer"
+            >
+              {Array.from({ length: 18 }, (_, i) => (i + 1) * 10).map((min) => {
+                const hr = Math.floor(min / 60);
+                const mn = min % 60;
+                const label = hr > 0 ? `${hr}시간 ${mn > 0 ? `${mn}분` : ""}` : `${mn}분`;
+                return (
+                  <option key={min} value={min}>
+                    {label}로 연장
+                  </option>
+                );
+              })}
+            </select>
+            <button
+              onClick={() => {
+                if (onExtendSeat) {
+                  onExtendSeat(userReservation.id, selectedExtension);
+                }
+              }}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1.5 rounded-xl text-xs font-bold shadow-md shadow-emerald-800/10 transition-all active:scale-[0.97] cursor-pointer"
+            >
+              시간 연장 신청
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Grid: Control / Seat Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
@@ -227,7 +291,7 @@ export default function UserDashboard({
                   </div>
 
                   {selectedSeat.status !== "AVAILABLE" && (
-                    <div className="text-[11px] text-slate-500 space-y-1">
+                    <div className="text-[11px] text-slate-500 space-y-2">
                       <div className="flex justify-between">
                         <span>이용자:</span>
                         <span className="font-bold text-slate-700">
@@ -240,6 +304,26 @@ export default function UserDashboard({
                           <span className="font-mono text-slate-400">2022****</span>
                         </div>
                       )}
+                      
+                      {/* 예약 상세 시간 정보 추가 */}
+                      {selectedSeat.reserved_at && selectedSeat.ends_at && (
+                        <div className="pt-2 border-t border-slate-200/60 space-y-1 bg-white/40 p-2 rounded-lg border border-slate-100">
+                          <div className="flex justify-between font-medium">
+                            <span className="text-slate-400">설정이용 시간:</span>
+                            <span className="text-slate-700">{selectedSeat.total_duration_minutes}분 설정</span>
+                          </div>
+                          <div className="flex justify-between font-medium">
+                            <span className="text-slate-400">예약 시간:</span>
+                            <span className="text-slate-700">{selectedSeat.reserved_at} ~ {selectedSeat.ends_at}</span>
+                          </div>
+                          {selectedSeat.use_timer_seconds !== undefined && (
+                            <div className="flex justify-between items-center font-bold text-emerald-655 mt-1">
+                              <span>남은 이용 시간:</span>
+                              <span className="font-mono text-[12px]">{formatSecondsToTime(selectedSeat.use_timer_seconds)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -248,17 +332,45 @@ export default function UserDashboard({
                 <div className="space-y-3">
                   {/* Option 1: Reserve the seat */}
                   {selectedSeat.status === "AVAILABLE" && (
-                    <button
-                      disabled={!!userReservation}
-                      onClick={() => onReserve(selectedSeat.id)}
-                      className={`w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
-                        userReservation 
-                          ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-                          : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-700/10 hover:scale-[1.01] active:scale-[0.99]"
-                      }`}
-                    >
-                      <span>{userReservation ? "이미 예약된 좌석이 있습니다" : "이 좌석 예약하기"}</span>
-                    </button>
+                    <div className="space-y-3">
+                      {!userReservation && (
+                        <div className="space-y-1.5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                          <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block">
+                            ⏱️ 좌석 이용 설정 시간
+                          </label>
+                          <select
+                            value={selectedDuration}
+                            onChange={(e) => setSelectedDuration(Number(e.target.value))}
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          >
+                            {Array.from({ length: 18 }, (_, i) => (i + 1) * 10).map((min) => {
+                              const hr = Math.floor(min / 60);
+                              const mn = min % 60;
+                              const label = hr > 0 ? `${hr}시간 ${mn > 0 ? `${mn}분` : ""}` : `${mn}분`;
+                              return (
+                                <option key={min} value={min}>
+                                  {label} 이용 (최대 3시간)
+                                </option>
+                              );
+                            })}
+                          </select>
+                          <p className="text-[9px] text-slate-400 leading-normal mt-1">
+                            * 사용자가 직접 설정한 시간만큼 타이머가 차감되며, 남은 시간이 10분 미만일 때 3시간 범위 내에서 다시 연장할 수 있습니다.
+                          </p>
+                        </div>
+                      )}
+                      <button
+                        disabled={!!userReservation}
+                        onClick={() => onReserve(selectedSeat.id, selectedDuration)}
+                        className={`w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                          userReservation 
+                            ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                            : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-700/10 hover:scale-[1.01] active:scale-[0.99]"
+                        }`}
+                      >
+                        <span>{userReservation ? "이미 예약된 좌석이 있습니다" : "이 좌석 예약하기"}</span>
+                      </button>
+                    </div>
                   )}
 
                   {/* Option 2: Reported by user or report actions */}

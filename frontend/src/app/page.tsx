@@ -47,6 +47,10 @@ export interface Seat {
   current_user_name?: string;
   current_reservation_id?: number;
   clearing_timer_seconds?: number;
+  reserved_at?: string;
+  ends_at?: string;
+  use_timer_seconds?: number;
+  total_duration_minutes?: number;
 }
 
 export interface AbsenceReport {
@@ -305,15 +309,16 @@ export default function Page() {
         })
       );
 
-      // 2. Tick Clearing seat timers across ALL facilities
+      // 2. Tick Seat timers (Clearing & Use timers) across ALL facilities
       setFacilitySeats((prevMap) => {
         const nextMap = { ...prevMap };
         Object.keys(nextMap).forEach(facId => {
           nextMap[facId] = nextMap[facId].map((seat) => {
+            const decrement = timerSpeedUp ? 60 : 1;
+
+            // A. Clearing 타이머 처리
             if (seat.status === "CLEARING" && seat.clearing_timer_seconds !== undefined) {
-              const decrement = timerSpeedUp ? 60 : 1;
               const newSeconds = Math.max(0, seat.clearing_timer_seconds - decrement);
-              
               if (newSeconds === 0) {
                 return {
                   ...seat,
@@ -329,6 +334,29 @@ export default function Page() {
                 clearing_timer_seconds: newSeconds
               };
             }
+
+            // B. 이용 시간 타이머 처리
+            if ((seat.status === "OCCUPIED" || seat.status === "REPORTED_1ST") && seat.use_timer_seconds !== undefined) {
+              const newSeconds = Math.max(0, seat.use_timer_seconds - decrement);
+              if (newSeconds === 0) {
+                return {
+                  ...seat,
+                  status: "AVAILABLE",
+                  current_user_id: undefined,
+                  current_user_name: undefined,
+                  current_reservation_id: undefined,
+                  reserved_at: undefined,
+                  ends_at: undefined,
+                  use_timer_seconds: undefined,
+                  total_duration_minutes: undefined
+                };
+              }
+              return {
+                ...seat,
+                use_timer_seconds: newSeconds
+              };
+            }
+
             return seat;
           });
         });
@@ -443,8 +471,14 @@ export default function Page() {
   };
 
   // Student Actions: Book Seat
-  const handleReserveSeat = (seatId: number) => {
+  const handleReserveSeat = (seatId: number, durationMinutes: number) => {
     if (!currentUser) return;
+    const now = new Date();
+    const end = new Date(now.getTime() + durationMinutes * 60 * 1000);
+    
+    const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
     setSeats((prev) =>
       prev.map((s) =>
         s.id === seatId
@@ -453,7 +487,32 @@ export default function Page() {
               status: "OCCUPIED",
               current_user_id: currentUser.id,
               current_user_name: `${currentUser.name}`,
-              current_reservation_id: Math.floor(Math.random() * 1000)
+              current_reservation_id: Math.floor(Math.random() * 1000),
+              reserved_at: reserved_at_str,
+              ends_at: ends_at_str,
+              use_timer_seconds: durationMinutes * 60,
+              total_duration_minutes: durationMinutes
+            }
+          : s
+      )
+    );
+  };
+
+  // Student Actions: Extend Seat Use Time
+  const handleExtendSeat = (seatId: number, extendMinutes: number) => {
+    const now = new Date();
+    const end = new Date(now.getTime() + extendMinutes * 60 * 1000);
+    
+    const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    
+    setSeats((prev) =>
+      prev.map((s) =>
+        s.id === seatId
+          ? {
+              ...s,
+              ends_at: ends_at_str,
+              use_timer_seconds: extendMinutes * 60,
+              total_duration_minutes: extendMinutes
             }
           : s
       )
@@ -1228,6 +1287,7 @@ export default function Page() {
               onConfirmReturn={handleConfirmReturn}
               onReportAbsence1st={handleReportAbsence1st}
               onReportAbsence2nd={handleReportAbsence2nd}
+              onExtendSeat={handleExtendSeat}
               timerSpeedUp={timerSpeedUp}
               setTimerSpeedUp={setTimerSpeedUp}
               selectedFacility={selectedFacility}
