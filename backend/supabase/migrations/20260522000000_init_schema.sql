@@ -32,11 +32,17 @@ CREATE TABLE public.reservations (
 -- 1.3. 열람실 좌석 테이블
 CREATE TABLE public.seats (
     id SERIAL PRIMARY KEY,
-    seat_number INT UNIQUE NOT NULL,
+    seat_number INT NOT NULL,
     room_name TEXT NOT NULL DEFAULT '제1열람실',
     status TEXT DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'OCCUPIED', 'REPORTED_1ST', 'REPORTED_2ND', 'CLEARING', 'MAINTENANCE')),
     current_reservation_id INT REFERENCES public.reservations(id) ON DELETE SET NULL,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    clearing_timer_seconds INT,
+    use_timer_seconds INT,
+    total_duration_minutes INT,
+    reserved_at TEXT,
+    ends_at TEXT,
+    CONSTRAINT unique_seat_number_per_room UNIQUE (seat_number, room_name)
 );
 
 -- reservations 테이블의 seat_id 외래키 추가
