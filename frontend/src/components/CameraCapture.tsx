@@ -149,17 +149,17 @@ export default function CameraCapture({ onCapture, onClose, title }: CameraCaptu
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs animate-fade-in">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950 px-6 py-4">
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
           <div className="flex items-center space-x-2">
-            <Camera className="h-5 w-5 text-indigo-400" />
-            <h3 className="font-semibold text-slate-100">{title}</h3>
+            <Camera className="h-5 w-5 text-emerald-600" />
+            <h3 className="font-bold text-slate-800">{title}</h3>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors"
+            className="rounded-lg p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition-colors cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -173,24 +173,24 @@ export default function CameraCapture({ onCapture, onClose, title }: CameraCaptu
               <div className="relative w-full h-full flex flex-col items-center justify-center p-6 text-center">
                 {/* Custom Canvas for simulating capture */}
                 <canvas ref={canvasRef} width={640} height={360} className="hidden" />
-                <div className="absolute inset-0 bg-slate-950/40 pointer-events-none border-2 border-dashed border-amber-500/30 m-4 flex flex-col justify-between p-4">
+                <div className="absolute inset-0 bg-slate-950/40 pointer-events-none border-2 border-dashed border-amber-500/35 m-4 flex flex-col justify-between p-4">
                   <div className="flex justify-between items-start">
                     <span className="text-[10px] bg-amber-500/80 text-slate-950 px-2 py-0.5 rounded font-mono font-bold">SIMULATION CAMERA</span>
-                    <span className="text-[10px] text-slate-400 font-mono">REC 🔴</span>
+                    <span className="text-[10px] text-slate-350 font-mono">REC 🔴</span>
                   </div>
                   <div className="w-full h-[2px] bg-cyan-500/60 shadow-[0_0_8px_rgba(6,182,212,0.8)] animate-scanner"></div>
-                  <div className="flex justify-between items-end text-[10px] text-slate-500 font-mono">
+                  <div className="flex justify-between items-end text-[10px] text-slate-400 font-mono">
                     <span>DAEGU UNIV LIBR</span>
                     <span>1080P 30FPS</span>
                   </div>
                 </div>
                 
                 <div className="z-10 flex flex-col items-center space-y-3">
-                  <div className="rounded-full bg-amber-500/10 p-3 text-amber-500">
+                  <div className="rounded-full bg-amber-50/10 p-3 text-amber-500 border border-amber-500/20">
                     <ShieldAlert className="h-8 w-8" />
                   </div>
                   <div className="space-y-1">
-                    <p className="font-semibold text-slate-200">웹캠 카메라 하드웨어 미감지</p>
+                    <p className="font-bold text-slate-200">웹캠 카메라 하드웨어 미감지</p>
                     <p className="text-xs text-slate-400 max-w-sm">
                       보안 정책에 따라 갤러리 이미지 업로드는 금지됩니다. 가상 현장 스냅샷 시뮬레이션을 실행합니다.
                     </p>
@@ -211,17 +211,17 @@ export default function CameraCapture({ onCapture, onClose, title }: CameraCaptu
                 {/* Camera Overlay Guide */}
                 <div className="absolute inset-4 pointer-events-none border border-slate-100/20 flex flex-col justify-between p-4">
                   <div className="flex justify-between">
-                    <span className="text-[10px] bg-indigo-600 text-slate-100 px-2 py-0.5 rounded font-mono">LIVE API</span>
-                    <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span> ONLINE
+                    <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-mono">LIVE API</span>
+                    <span className="text-[10px] text-emerald-450 font-mono flex items-center gap-1">
+                      <span className="h-2 w-2 rounded-full bg-emerald-450 animate-ping"></span> ONLINE
                     </span>
                   </div>
                   <div className="border-t border-b border-dashed border-slate-100/20 h-1/2 flex items-center justify-center">
-                    <span className="text-xs text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-full backdrop-blur-sm">
+                    <span className="text-xs text-slate-350 bg-slate-900/60 px-3 py-1.5 rounded-full backdrop-blur-xs">
                       자리 방치 물품이 잘 보이도록 촬영해 주세요
                     </span>
                   </div>
-                  <div className="text-[10px] text-slate-400 font-mono">
+                  <div className="text-[10px] text-slate-300 font-mono">
                     DAEGU UNIV. LIBRARY FACILITY MGMT
                   </div>
                 </div>
@@ -234,8 +234,8 @@ export default function CameraCapture({ onCapture, onClose, title }: CameraCaptu
         </div>
 
         {/* Footer controls */}
-        <div className="bg-slate-950 px-6 py-4 flex items-center justify-between">
-          <p className="text-xs text-slate-500 max-w-[200px]">
+        <div className="bg-slate-50 px-6 py-4 flex items-center justify-between border-t border-slate-200">
+          <p className="text-xs text-slate-500 max-w-[200px] leading-relaxed">
             {capturedPhoto 
               ? "캡처된 사진이 증빙 자료로 첨부됩니다." 
               : "실시간 라이브 촬영만 접수 가능합니다 (조작 방지)."}
@@ -245,7 +245,7 @@ export default function CameraCapture({ onCapture, onClose, title }: CameraCaptu
             {!capturedPhoto ? (
               <button
                 onClick={capturePhoto}
-                className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-500 text-slate-100 px-4 py-2 rounded-lg font-medium text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-xs"
               >
                 <Camera className="h-4 w-4" />
                 <span>사진 촬영</span>
@@ -254,14 +254,14 @@ export default function CameraCapture({ onCapture, onClose, title }: CameraCaptu
               <>
                 <button
                   onClick={handleRetake}
-                  className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg font-medium text-sm transition-colors"
+                  className="flex items-center space-x-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer"
                 >
                   <RefreshCw className="h-4 w-4" />
                   <span>재촬영</span>
                 </button>
                 <button
                   onClick={handleConfirm}
-                  className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 text-slate-100 px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer shadow-md shadow-emerald-700/10"
                 >
                   <Sparkles className="h-4 w-4" />
                   <span>제출하기</span>

@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0f172a;
-  --foreground: #f8fafc;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
 body {
@@ -15,40 +15,40 @@ body {
 /* Custom Animations */
 @keyframes warning-flash-amber {
   0%, 100% {
-    background-color: rgba(245, 158, 11, 0.15);
+    background-color: rgba(245, 158, 11, 0.08);
     border-color: rgba(245, 158, 11, 0.4);
-    box-shadow: 0 0 4px rgba(245, 158, 11, 0.2);
+    box-shadow: 0 0 4px rgba(245, 158, 11, 0.1);
   }
   50% {
-    background-color: rgba(245, 158, 11, 0.35);
-    border-color: rgba(245, 158, 11, 1);
-    box-shadow: 0 0 16px rgba(245, 158, 11, 0.6);
+    background-color: rgba(245, 158, 11, 0.2);
+    border-color: rgba(245, 158, 11, 0.9);
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
   }
 }
 
 @keyframes warning-flash-red {
   0%, 100% {
-    background-color: rgba(239, 68, 68, 0.15);
+    background-color: rgba(239, 68, 68, 0.08);
     border-color: rgba(239, 68, 68, 0.4);
-    box-shadow: 0 0 4px rgba(239, 68, 68, 0.2);
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.1);
   }
   50% {
-    background-color: rgba(239, 68, 68, 0.4);
-    border-color: rgba(239, 68, 68, 1);
-    box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+    background-color: rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.9);
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.4);
   }
 }
 
 @keyframes pulse-purple {
   0%, 100% {
-    background-color: rgba(139, 92, 246, 0.15);
+    background-color: rgba(139, 92, 246, 0.08);
     border-color: rgba(139, 92, 246, 0.4);
-    box-shadow: 0 0 4px rgba(139, 92, 246, 0.2);
+    box-shadow: 0 0 4px rgba(139, 92, 246, 0.15);
   }
   50% {
-    background-color: rgba(139, 92, 246, 0.3);
+    background-color: rgba(139, 92, 246, 0.2);
     border-color: rgba(139, 92, 246, 0.8);
-    box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
+    box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
   }
 }
 
@@ -79,15 +79,45 @@ body {
 
 /* Glassmorphism utility */
 .glass-panel {
-  background: rgba(30, 41, 59, 0.7);
+  background: rgba(255, 255, 255, 0.8);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .glass-panel-glow {
-  background: rgba(30, 41, 59, 0.8);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
 }
+
+@keyframes fade-in-up {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes gradient-x {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animate-gradient-x {
+  background-size: 200% 200%;
+  animation: gradient-x 12s ease infinite;
+}
+
 
