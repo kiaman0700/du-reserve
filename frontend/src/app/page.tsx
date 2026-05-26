@@ -906,7 +906,7 @@ export default function Page() {
       // Fallback login
       setIsLoggedIn(true);
       setCurrentUser({
-        id: "demo-student-uuid",
+        id: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d", // 실제 DB와 일치하는 UUID로 매핑하여 타입 오류 예방
         university_id: "20222043",
         name: "강민성 (컴퓨터공학과)",
         role: "USER"
@@ -943,7 +943,7 @@ export default function Page() {
       // Fallback login
       setIsLoggedIn(true);
       setCurrentUser({
-        id: "demo-admin-uuid",
+        id: "f9e8d7c6-b5a4-3f2e-1d0c-9b8a7f6e5d4c", // 실제 DB와 일치하는 UUID로 매핑하여 타입 오류 예방
         university_id: "ADM-9942",
         name: "이영희 사서관",
         role: "ADMIN",
