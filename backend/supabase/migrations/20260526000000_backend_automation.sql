@@ -3,6 +3,10 @@
 -- 작성일자: 2026년 5월 26일
 -- ==========================================
 
+-- 0. 중복 오버로딩된 구형 함수 삭제 (p_user_id TEXT/UUID 타입 경합 해결)
+DROP FUNCTION IF EXISTS public.reserve_seat(integer, text);
+DROP FUNCTION IF EXISTS public.reserve_seat(integer, uuid);
+
 -- 1. reserve_seat 저장 프로시저(RPC) 리라이트
 -- 제재(블랙리스트) 기간이 유효한 학생은 예약 신청 시 데이터베이스 수준에서 원천 차단합니다.
 CREATE OR REPLACE FUNCTION public.reserve_seat(p_seat_id INT, p_user_id UUID)
