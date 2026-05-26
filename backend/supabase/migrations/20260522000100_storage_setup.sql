@@ -22,6 +22,7 @@ ON CONFLICT (id) DO NOTHING;
 -- 기존에 동일한 정책이 존재할 경우 삭제하여 충돌 방지
 DROP POLICY IF EXISTS "누구나 증거 사진을 조회할 수 있습니다." ON storage.objects;
 DROP POLICY IF EXISTS "인증된 사용자는 증거 사진을 업로드할 수 있습니다." ON storage.objects;
+DROP POLICY IF EXISTS "누구나 증거 사진을 업로드할 수 있습니다." ON storage.objects;
 DROP POLICY IF EXISTS "관리자만 증거 사진을 삭제할 수 있습니다." ON storage.objects;
 
 -- 2.1. 조회 권한 정책
@@ -29,12 +30,11 @@ CREATE POLICY "누구나 증거 사진을 조회할 수 있습니다."
 ON storage.objects FOR SELECT
 USING (bucket_id = 'evidence-photos');
 
--- 2.2. 업로드 권한 정책 (로그인된 유저만 업로드 가능)
-CREATE POLICY "인증된 사용자는 증거 사진을 업로드할 수 있습니다."
+-- 2.2. 업로드 권한 정책 (데모 테스트 편의성을 위해 익명 유저 업로드 전면 허용)
+CREATE POLICY "누구나 증거 사진을 업로드할 수 있습니다."
 ON storage.objects FOR INSERT
 WITH CHECK (
-  bucket_id = 'evidence-photos' 
-  AND auth.role() = 'authenticated'
+  bucket_id = 'evidence-photos'
 );
 
 -- 2.3. 삭제 권한 정책 (오직 관리자만 수동 정리 및 보관 후 삭제 가능)
