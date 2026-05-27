@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Seat, SeatStatus } from "@/app/page";
-import { Check, ShieldAlert, Sparkles, Clock, Trash2 } from "lucide-react";
+import { Check, ShieldAlert, Sparkles, Clock, Trash2, Wrench } from "lucide-react";
 
 interface Facility {
   id: string;
@@ -55,6 +55,12 @@ const statusColors: Record<SeatStatus, { bg: string; text: string; label: string
     border: "border-purple-300 shadow-xs",
     text: "text-purple-700 font-bold",
     label: "정리 중"
+  },
+  MAINTENANCE: {
+    bg: "bg-slate-150/80 bg-[repeating-linear-gradient(45deg,rgba(0,0,0,0.03),rgba(0,0,0,0.03)_10px,transparent_10px,transparent_20px)]",
+    border: "border-slate-300 opacity-80",
+    text: "text-slate-500 font-bold",
+    label: "점검 중"
   }
 };
 
@@ -140,6 +146,13 @@ export default function SeatMap({
             <div className="flex items-center gap-1 text-[9px] text-emerald-700">
               <Sparkles className="h-3 w-3 text-emerald-600" />
               <span>예약 가능</span>
+            </div>
+          )}
+
+          {seat.status === "MAINTENANCE" && (
+            <div className="flex items-center gap-1 text-[9px] text-slate-500">
+              <Wrench className="h-3 w-3 text-slate-450 animate-pulse-subtle" />
+              <span>좌석 점검 중</span>
             </div>
           )}
         </div>
