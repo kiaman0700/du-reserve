@@ -335,94 +335,42 @@ export default function UserDashboard({
               </p>
             </div>
 
-            {/* Quick Actions Buttons */}
-            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto border-t border-emerald-700/50 pt-4 md:pt-0 md:border-0">
-              {/* GPS 및 QR코드 입실 인증 버튼 추가 */}
-              {!isVerified && (
-                <>
-                  <button
-                    onClick={onVerifyCheckin}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-450 text-white border border-amber-400 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01] animate-bounce-short shadow-md shadow-amber-950/20"
-                  >
-                    <MapPin className="h-4 w-4" />
-                    <span>📍 GPS 입실 인증</span>
-                  </button>
-                  <button
-                    onClick={() => handleOpenReportCamera("CHECKIN", userReservation.id)}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-550 text-white border border-teal-500 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01] animate-bounce-short shadow-md shadow-teal-950/20"
-                  >
-                    <Camera className="h-4 w-4" />
-                    <span>📷 QR코드 입실 인증</span>
-                  </button>
-                </>
-              )}
-
-              {/* 즉시 반납 */}
-              <button
-                onClick={onCheckout}
-                className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-200 border border-red-500/30 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01]"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>즉시 반납</span>
-              </button>
-
-              {/* 연장 선택 */}
-              <div className="flex items-center gap-1.5 bg-emerald-900/40 border border-emerald-700/60 p-1.5 rounded-xl flex-1 md:flex-none">
-                <select
-                  value={selectedExtension}
-                  onChange={(e) => setSelectedExtension(Number(e.target.value))}
-                  className="bg-transparent border-0 text-white font-bold text-xs focus:outline-none cursor-pointer pr-4"
-                >
-                  <option value={30} className="text-slate-800">30분 연장</option>
-                  <option value={60} className="text-slate-800">1시간 연장</option>
-                  <option value={120} className="text-slate-800">2시간 연장</option>
-                  <option value={180} className="text-slate-800">3시간 연장</option>
-                </select>
+            {/* Quick Actions Buttons — 입실 인증만 노출, 연장/반납은 좌석 상세 패널에서 */}
+            {!isVerified && (
+              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto border-t border-emerald-700/50 pt-4 md:pt-0 md:border-0">
                 <button
-                  onClick={() => onExtendSeat(userReservation.id, selectedExtension)}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer hover:scale-95"
+                  onClick={onVerifyCheckin}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-450 text-white border border-amber-400 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01] animate-bounce-short shadow-md shadow-amber-950/20"
                 >
-                  연장
+                  <MapPin className="h-4 w-4" />
+                  <span>📍 GPS 입실 인증</span>
+                </button>
+                <button
+                  onClick={() => handleOpenReportCamera("CHECKIN", userReservation.id)}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-550 text-white border border-teal-500 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01] animate-bounce-short shadow-md shadow-teal-950/20"
+                >
+                  <Camera className="h-4 w-4" />
+                  <span>📷 QR코드 입실 인증</span>
                 </button>
               </div>
-
-              {/* 조기 퇴실 예정 시간 설정 */}
-              <div className="flex items-center gap-1.5 bg-emerald-900/40 border border-emerald-700/60 p-1.5 rounded-xl flex-1 md:flex-none">
-                <select
-                  value={earlyCheckoutMinutes}
-                  onChange={(e) => setEarlyCheckoutMinutes(Number(e.target.value))}
-                  className="bg-transparent border-0 text-white font-bold text-xs focus:outline-none cursor-pointer pr-4"
-                >
-                  <option value={10} className="text-slate-800">10분 뒤 퇴실 예고</option>
-                  <option value={20} className="text-slate-800">20분 뒤 퇴실 예고</option>
-                  <option value={30} className="text-slate-800">30분 뒤 퇴실 예고</option>
-                  <option value={60} className="text-slate-800">1시간 뒤 퇴실 예고</option>
-                </select>
-                <button
-                  onClick={() => onSetEarlyCheckout(userReservation.id, earlyCheckoutMinutes)}
-                  className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer hover:scale-95"
-                >
-                  설정
-                </button>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* 10분 전 만료 임박 알림 팝업/배너 */}
+      {/* ⏰ 10분 전 퇴실 예고 — 자동 발동 (설정 불필요) */}
       {userReservation && userReservation.use_timer_seconds !== undefined && userReservation.use_timer_seconds > 0 && userReservation.use_timer_seconds <= 600 && (
-        <div className="rounded-2xl bg-amber-50 border border-amber-300 p-5 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-bounce-short">
+        <div className="rounded-2xl bg-amber-50 border-2 border-amber-400 p-5 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-bounce-short">
           <div className="flex items-center space-x-3.5">
             <div className="p-2.5 bg-amber-100 rounded-xl text-amber-600 border border-amber-250">
               <Clock className="h-6 w-6 animate-pulse" />
             </div>
             <div className="space-y-1">
-              <h4 className="text-sm font-bold text-slate-900">⚠️ 좌석 이용 시간 만료 임박 안내</h4>
+              <h4 className="text-sm font-extrabold text-amber-900">🔔 10분 전 퇴실 예고 (자동 발동)</h4>
               <p className="text-xs text-slate-655 font-semibold">
-                곧 이용 시간이 만료되어 빈 자리로 변경될 예정입니다. 이용 시간을 연장하시겠습니까, 아니면 퇴실 예약을 취소하시겠습니까?
+                이용 종료까지 10분 미만 남았습니다. 아래에서 연장하거나 즉시 퇴실하세요. 시간이 지나면 좌석이 자동 개방됩니다.
               </p>
-              <div className="text-xs text-amber-700 font-bold">
+              <div className="text-xs text-amber-700 font-bold font-mono">
                 남은 시간: {formatSecondsToTime(userReservation.use_timer_seconds)}
               </div>
             </div>
@@ -432,13 +380,7 @@ export default function UserDashboard({
               onClick={() => onExtendSeat(userReservation.id, 60)}
               className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all"
             >
-              시간 연장 (1시간)
-            </button>
-            <button
-              onClick={() => onCancelEarlyCheckout(userReservation.id)}
-              className="flex-1 md:flex-none bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all"
-            >
-              퇴실 취소 (기존 상태 유지)
+              1시간 연장
             </button>
             <button
               onClick={onCheckout}
@@ -449,6 +391,8 @@ export default function UserDashboard({
           </div>
         </div>
       )}
+
+
 
       {/* User Information Profile Panel */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl bg-white border border-slate-200 p-6 shadow-xs">
@@ -581,12 +525,14 @@ export default function UserDashboard({
                     <span className="text-slate-500">현재 상태</span>
                     <span className={`font-bold ${
                       selectedSeat.status === "AVAILABLE" ? "text-emerald-600" :
+                      selectedSeat.status === "MAINTENANCE" ? "text-slate-500" :
                       selectedSeat.status === "OCCUPIED" ? "text-slate-650" :
                       selectedSeat.status === "REPORTED_1ST" ? "text-amber-600" :
                       selectedSeat.status === "REPORTED_2ND" ? "text-red-650" :
                       "text-purple-650"
                     }`}>
                       {selectedSeat.status === "AVAILABLE" && "예약 가능"}
+                      {selectedSeat.status === "MAINTENANCE" && "🛠️ 수동 점검 중"}
                       {selectedSeat.status === "OCCUPIED" && "이용 중"}
                       {selectedSeat.status === "REPORTED_1ST" && "1차 경고"}
                       {selectedSeat.status === "REPORTED_2ND" && "2차 신고 완료"}
@@ -742,7 +688,7 @@ export default function UserDashboard({
                           <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
                             <div 
                               className="bg-amber-500 h-full rounded-full transition-all duration-1000"
-                              style={{ width: `${(activeReport.warning_timer_seconds / 1800) * 100}%` }}
+                              style={{ width: `${(activeReport.warning_timer_seconds / 600) * 100}%` }}
                             />
                           </div>
                         </div>
@@ -787,7 +733,7 @@ export default function UserDashboard({
 
                   {/* Self operations for current occupant */}
                   {selectedSeat.current_user_id === user.id && (
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                       <p className="text-xs text-slate-500 text-center font-bold">내가 사용 중인 좌석입니다.</p>
                       {selectedSeat.status === "REPORTED_1ST" ? (
                         <button
@@ -797,12 +743,24 @@ export default function UserDashboard({
                           자리 복귀 확인 (신고 리셋)
                         </button>
                       ) : (
-                        <button
-                          onClick={onCheckout}
-                          className="w-full py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-650 font-bold border border-red-200 text-xs transition-colors cursor-pointer"
-                        >
-                          반납 및 퇴실하기
-                        </button>
+                        <div className="space-y-2">
+                          {/* 1시간 연장 */}
+                          <button
+                            onClick={() => onExtendSeat(selectedSeat.id, 60)}
+                            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-all shadow-md shadow-emerald-900/10 cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <Clock className="h-3.5 w-3.5" />
+                            1시간 연장
+                          </button>
+                          {/* 즉시 반납 */}
+                          <button
+                            onClick={onCheckout}
+                            className="w-full py-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-650 font-bold border border-red-200 text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <LogOut className="h-3.5 w-3.5" />
+                            즉시 반납
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}

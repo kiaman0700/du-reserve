@@ -150,6 +150,58 @@ const YellowDropsBackground = () => (
   </div>
 );
 
+const isMockMode = 
+  typeof window === "undefined" ||
+  !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL.includes("your-project.supabase.co") ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL.includes("placeholder");
+
+const getMockUuid = (id: string, role: string) => {
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  if (uuidRegex.test(id)) return id;
+  const clean = id.replace(/[^0-9a-fA-F]/g, '').slice(0, 12).padStart(12, '0');
+  const prefix = role === 'ADMIN' ? '88888888-8888-8888-8888' : '11111111-1111-1111-1111';
+  return `${prefix}-${clean}`;
+};
+
+const generateMockDbSeats = () => {
+  const rooms = [
+    { name: "제1열람실", capacity: 24 },
+    { name: "2층 열람실", capacity: 28 },
+    { name: "5층 열람실", capacity: 32 }
+  ];
+  const seatsList: Seat[] = [];
+  let globalId = 1;
+  rooms.forEach(r => {
+    for (let i = 1; i <= r.capacity; i++) {
+      const hash = r.name.charCodeAt(0) + r.name.charCodeAt(1) + i;
+      if (hash % 5 === 0) {
+        seatsList.push({
+          id: globalId++,
+          seat_number: i,
+          room_name: r.name,
+          status: "OCCUPIED" as SeatStatus,
+          current_user_id: `mock-user-${hash}`,
+          current_user_name: `임의학생 (학부생)`,
+          current_reservation_id: 1000 + hash,
+          use_timer_seconds: 7200,
+          total_duration_minutes: 120,
+          reserved_at: "18:00:00",
+          ends_at: "20:00:00"
+        });
+      } else {
+        seatsList.push({
+          id: globalId++,
+          seat_number: i,
+          room_name: r.name,
+          status: "AVAILABLE" as SeatStatus
+        });
+      }
+    }
+  });
+  return seatsList;
+};
+
 export default function Page() {
   // Authentication & Session States
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -174,6 +226,15 @@ export default function Page() {
   const [adminPenaltyReason, setAdminPenaltyReason] = useState<string>("상습 소음 유발");
   const [adminPenaltyDays, setAdminPenaltyDays] = useState<number>(3);
 
+  // 관리자 수동 예약 시스템 states
+  const [manualStudentId, setManualStudentId] = useState<string>("");
+  const [manualStudentName, setManualStudentName] = useState<string>("");
+  const [manualFacility, setManualFacility] = useState<Facility | null>(null);
+  const [manualSeats, setManualSeats] = useState<Seat[]>([]);
+  const [manualSelectedSeatId, setManualSelectedSeatId] = useState<number | null>(null);
+  const [manualDuration, setManualDuration] = useState<number>(120);
+  const [manualLoading, setManualLoading] = useState<boolean>(false);
+
   // Selection & Filter States (실제 검색 쿼리용)
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
   const [facilityFilter, setFacilityFilter] = useState<string>("ALL");
@@ -187,11 +248,15 @@ export default function Page() {
   const [tempCapacity, setTempCapacity] = useState<string>("");
 
   // DB & State
-  const [dbSeats, setDbSeats] = useState<Seat[]>([]);
+  const [dbSeats, setDbSeats] = useState<Seat[]>(generateMockDbSeats());
   const [facilitySeats, setFacilitySeats] = useState<Record<string, Seat[]>>({});
   const [absenceReports, setAbsenceReports] = useState<AbsenceReport[]>([]);
   const [complaints, setComplaints] = useState<any[]>([]);
-  const [facilityConfigs, setFacilityConfigs] = useState<Record<string, any>>({});
+  const [facilityConfigs, setFacilityConfigs] = useState<Record<string, any>>({
+    "제1열람실": { room_name: "제1열람실", open_time: "09:00:00", close_time: "22:00:00", max_use_hours: 3 },
+    "2층 열람실": { room_name: "2층 열람실", open_time: "09:00:00", close_time: "22:00:00", max_use_hours: 4 },
+    "5층 열람실": { room_name: "5층 열람실", open_time: "09:00:00", close_time: "23:00:00", max_use_hours: null }
+  });
   const [notificationSubscribed, setNotificationSubscribed] = useState<boolean>(false);
   const [cooldownTimeLeft, setCooldownTimeLeft] = useState<number>(0);
   
@@ -250,6 +315,7 @@ export default function Page() {
   // Fetch configs from database
   const fetchConfigs = async () => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { data, error } = await supabase.from('facility_configs').select('*');
       if (!error && data) {
         const configMap: Record<string, any> = {};
@@ -266,6 +332,7 @@ export default function Page() {
   // Fetch complaints from database
   const fetchComplaints = async () => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { data, error } = await supabase
         .from('complaints')
         .select(`
@@ -287,6 +354,7 @@ export default function Page() {
   // Fetch all db seats to calculate real counts in listing page
   const fetchAllDbSeats = async () => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { data, error } = await supabase.from('seats').select('*');
       if (!error && data) {
         setDbSeats(data);
@@ -303,6 +371,7 @@ export default function Page() {
     const isLibrary = selectedFacility.collegeId === 'library';
     if (isLibrary) {
       try {
+        if (isMockMode) throw new Error("Mock mode enabled");
         const { data: seatsData, error: seatsErr } = await supabase
           .from('seats')
           .select('*')
@@ -376,7 +445,7 @@ export default function Page() {
           const firstReportedAt = new Date(report.first_reported_at).getTime();
           const now = Date.now();
           const elapsed = Math.floor((now - firstReportedAt) / 1000);
-          const warningTimerSeconds = Math.max(0, 1800 - elapsed);
+          const warningTimerSeconds = Math.max(0, 600 - elapsed);
 
           return {
             id: report.id,
@@ -556,36 +625,38 @@ export default function Page() {
     fetchAllDbSeats();
 
     let dbChannel: any = null;
-    try {
-      dbChannel = supabase.channel('global-db-updates')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'seats' }, (payload) => {
-          fetchAllDbSeats();
-          if (selectedFacility) fetchSeatsAndReports();
+    if (!isMockMode) {
+      try {
+        dbChannel = supabase.channel('global-db-updates')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'seats' }, (payload) => {
+            fetchAllDbSeats();
+            if (selectedFacility) fetchSeatsAndReports();
 
-          // [요청 5] 빈자리 실시간 반납 알림
-          if (payload.eventType === 'UPDATE') {
-            const newSeat = payload.new;
-            const oldSeat = payload.old;
-            if (newSeat.status === 'AVAILABLE' && oldSeat.status !== 'AVAILABLE') {
-              checkAndTriggerSeatNotification(newSeat.room_name, 'AVAILABLE');
+            // [요청 5] 빈자리 실시간 반납 알림
+            if (payload.eventType === 'UPDATE') {
+              const newSeat = payload.new;
+              const oldSeat = payload.old;
+              if (newSeat.status === 'AVAILABLE' && oldSeat.status !== 'AVAILABLE') {
+                checkAndTriggerSeatNotification(newSeat.room_name, 'AVAILABLE');
+              }
+              if (newSeat.ends_at && newSeat.ends_at !== oldSeat.ends_at) {
+                checkAndTriggerSeatNotification(newSeat.room_name, 'EARLY_CHECKOUT', newSeat.ends_at);
+              }
             }
-            if (newSeat.ends_at && newSeat.ends_at !== oldSeat.ends_at) {
-              checkAndTriggerSeatNotification(newSeat.room_name, 'EARLY_CHECKOUT', newSeat.ends_at);
-            }
-          }
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'absence_reports' }, () => {
-          if (selectedFacility) fetchSeatsAndReports();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'complaints' }, () => {
-          fetchComplaints();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'facility_configs' }, () => {
-          fetchConfigs();
-        })
-        .subscribe();
-    } catch (err) {
-      console.warn("Failed to subscribe to global realtime channel", err);
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'absence_reports' }, () => {
+            if (selectedFacility) fetchSeatsAndReports();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'complaints' }, () => {
+            fetchComplaints();
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'facility_configs' }, () => {
+            fetchConfigs();
+          })
+          .subscribe();
+      } catch (err) {
+        console.warn("Failed to subscribe to global realtime channel", err);
+      }
     }
 
     return () => {
@@ -777,6 +848,40 @@ export default function Page() {
     }
   }, [facilitySeats, selectedFacility]);
 
+  // [요청] 예약한 시설 페이지 진입 시 내 좌석 자동 선택
+  useEffect(() => {
+    if (!selectedFacility || !currentUser) return;
+    const seats = facilitySeats[selectedFacility.id] || [];
+    const mySeat = seats.find(s => s.current_user_id === currentUser.id);
+    if (mySeat) {
+      setSelectedSeat(mySeat);
+    }
+  }, [selectedFacility, facilitySeats, currentUser]);
+
+  // 수동 예약 패널: 시설 변경 시 해당 시설의 좌석 목록 로드
+  useEffect(() => {
+    if (!manualFacility) {
+      setManualSeats([]);
+      setManualSelectedSeatId(null);
+      return;
+    }
+    // facilitySeats에 이미 로드된 경우 재사용, 없으면 mock 생성
+    const existing = facilitySeats[manualFacility.id];
+    if (existing && existing.length > 0) {
+      setManualSeats(existing);
+    } else {
+      // Mock 생성
+      const mockSeats: Seat[] = Array.from({ length: manualFacility.capacity }, (_, i) => ({
+        id: 90000 + (FACILITIES.indexOf(manualFacility) * 100) + i + 1,
+        seat_number: i + 1,
+        room_name: manualFacility.roomName,
+        status: "AVAILABLE" as const
+      }));
+      setManualSeats(mockSeats);
+    }
+    setManualSelectedSeatId(null);
+  }, [manualFacility, facilitySeats]);
+
   // Check and trigger empty seat subscription push
   const checkAndTriggerSeatNotification = async (roomName: string, type: 'AVAILABLE' | 'EARLY_CHECKOUT', endsAt?: string) => {
     if (!currentUser) return;
@@ -854,6 +959,7 @@ export default function Page() {
       const password = studentPasswordInput.trim(); // [TODO 1] Use user entered portal password
 
       try {
+        if (isMockMode) throw new Error("Mock mode enabled");
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
           // Sign up if not exist
@@ -879,7 +985,7 @@ export default function Page() {
         // Fallback login
         setIsLoggedIn(true);
         setCurrentUser({
-          id: `mock-student-${studentIdInput.trim()}`,
+          id: getMockUuid(studentIdInput.trim(), "USER"),
           university_id: studentIdInput.trim(),
           name: `강민성 (컴퓨터공학과)`,
           role: "USER"
@@ -896,6 +1002,7 @@ export default function Page() {
       const password = `admin_daegu_2026!`;
 
       try {
+        if (isMockMode) throw new Error("Mock mode enabled");
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
           const { error: signUpErr } = await supabase.auth.signUp({
@@ -918,7 +1025,7 @@ export default function Page() {
         console.warn("Supabase auth admin login failed, using local mock fallback:", err);
         setIsLoggedIn(true);
         setCurrentUser({
-          id: `mock-admin-${adminCodeInput.trim()}`,
+          id: getMockUuid(adminCodeInput.trim(), "ADMIN"),
           university_id: adminCodeInput.trim(),
           name: "이영희 사서관",
           role: "ADMIN",
@@ -937,6 +1044,7 @@ export default function Page() {
     const email = "20222043@daegu.ac.kr";
     const password = "20222043__daegu!";
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         const { error: signUpErr } = await supabase.auth.signUp({
@@ -973,6 +1081,7 @@ export default function Page() {
     const email = "ADM-9942@daegu.ac.kr";
     const password = "admin_daegu_2026!";
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         const { error: signUpErr } = await supabase.auth.signUp({
@@ -1029,10 +1138,86 @@ export default function Page() {
     setFacilityFilter("ALL");
   };
 
+  // 관리자 수동 예약 처리
+  const handleAdminManualReserve = async () => {
+    if (!manualStudentId.trim() || !manualStudentName.trim()) {
+      alert("학번과 이름을 입력해 주세요.");
+      return;
+    }
+    if (!manualFacility) {
+      alert("시설을 선택해 주세요.");
+      return;
+    }
+    if (!manualSelectedSeatId) {
+      alert("좌석을 선택해 주세요.");
+      return;
+    }
+    const targetSeat = manualSeats.find(s => s.id === manualSelectedSeatId);
+    if (!targetSeat || targetSeat.status !== "AVAILABLE") {
+      alert("선택한 좌석은 이미 사용 중이거나 예약 불가합니다.");
+      return;
+    }
+
+    setManualLoading(true);
+    try {
+      const now = new Date();
+      const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      const end = new Date(now.getTime() + manualDuration * 60 * 1000);
+      const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      const use_timer = manualDuration * 60;
+      const mockUserId = `manual-${manualStudentId}-${Date.now()}`;
+
+      if (isMockMode) throw new Error("Mock mode enabled");
+
+      // Supabase path - look up profile first
+      const { data: profile } = await supabase.from('profiles').select('id').eq('university_id', manualStudentId).single();
+      const userId = profile?.id || mockUserId;
+
+      await supabase.rpc('reserve_seat', { p_seat_id: manualSelectedSeatId, p_user_id: userId });
+      await supabase.from('seats').update({
+        use_timer_seconds: use_timer,
+        total_duration_minutes: manualDuration,
+        reserved_at: reserved_at_str,
+        ends_at: ends_at_str
+      }).eq('id', manualSelectedSeatId);
+
+      alert(`✅ 수동 예약 완료!\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${manualDuration}분`);
+    } catch (err: any) {
+      console.warn("Admin manual reserve - using mock mode:", err);
+      // Mock: update manualSeats local state
+      const now = new Date();
+      const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      const end = new Date(now.getTime() + manualDuration * 60 * 1000);
+      const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      const use_timer = manualDuration * 60;
+      const mockUserId = `manual-${manualStudentId}`;
+
+      setManualSeats(prev => prev.map(s => s.id === manualSelectedSeatId ? {
+        ...s,
+        status: "OCCUPIED" as const,
+        current_user_id: mockUserId,
+        current_user_name: `${manualStudentName} (${manualStudentId})`,
+        current_reservation_id: Math.floor(Math.random() * 99999),
+        use_timer_seconds: use_timer,
+        total_duration_minutes: manualDuration,
+        reserved_at: reserved_at_str,
+        ends_at: ends_at_str
+      } : s));
+
+      alert(`✅ 수동 예약 완료! (데모 모드)\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${manualDuration}분`);
+    } finally {
+      setManualLoading(false);
+      setManualSelectedSeatId(null);
+      setManualStudentId("");
+      setManualStudentName("");
+    }
+  };
+
   // Student DB reservations
   const handleReserveSeat = async (seatId: number, durationMinutes: number | null) => {
     if (!currentUser || !selectedFacility) return;
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       // Check operating hours config
       const config = facilityConfigs[selectedFacility.roomName];
       if (config) {
@@ -1115,6 +1300,7 @@ export default function Page() {
 
   const handleExtendSeat = async (seatId: number, extendMinutes: number) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { data: seatData } = await supabase.from('seats').select('*').eq('id', seatId).single();
       if (seatData) {
         const currentSeconds = seatData.use_timer_seconds || 0;
@@ -1157,6 +1343,7 @@ export default function Page() {
     const activeRes = myReservation || globalMyReservation;
     if (!currentUser || !activeRes) return;
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { error } = await supabase.rpc('return_seat', {
         p_seat_id: activeRes.id,
         p_user_id: currentUser.id
@@ -1205,6 +1392,7 @@ export default function Page() {
     const activeRes = myReservation || globalMyReservation;
     if (!currentUser || !activeRes) return;
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { error } = await supabase.rpc('confirm_user_returned', {
         p_seat_id: activeRes.id,
         p_user_id: currentUser.id
@@ -1231,6 +1419,7 @@ export default function Page() {
   const handleReportAbsence1st = async (seatId: number, photoUrl: string) => {
     if (!currentUser) return;
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const fileName = `report_1st_${seatId}_${Date.now()}.png`;
       const uploadedUrl = await uploadPhotoToStorage(photoUrl, fileName);
 
@@ -1257,7 +1446,7 @@ export default function Page() {
         reporter_id: currentUser.id,
         first_photo_url: photoUrl,
         first_reported_at: new Date().toISOString(),
-        warning_timer_seconds: 1800,
+        warning_timer_seconds: 600,
         status: "PENDING"
       };
       setAbsenceReports(prev => [...prev, newReport]);
@@ -1268,6 +1457,7 @@ export default function Page() {
   // 2차 최종 부재 신고 등록
   const handleReportAbsence2nd = async (seatId: number, photoUrl: string) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const fileName = `report_2nd_${seatId}_${Date.now()}.png`;
       const uploadedUrl = await uploadPhotoToStorage(photoUrl, fileName);
 
@@ -1299,6 +1489,7 @@ export default function Page() {
   // 조기 퇴실 예정 설정
   const handleSetEarlyCheckout = async (seatId: number, minutes: number) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const now = new Date();
       const end = new Date(now.getTime() + minutes * 60 * 1000);
       const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -1327,6 +1518,7 @@ export default function Page() {
   // 조기 퇴실 취소
   const handleCancelEarlyCheckout = async (seatId: number) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const seat = dbSeats.find(s => s.id === seatId);
       const roomName = seat ? seat.room_name : (selectedFacility ? selectedFacility.roomName : "");
       const config = facilityConfigs[roomName];
@@ -1367,6 +1559,7 @@ export default function Page() {
   const handleSubmitComplaint = async (category: string, description: string, photo: string | null): Promise<boolean> => {
     if (!currentUser || !selectedFacility) return false;
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       let photoUrl = undefined;
       if (photo) {
         const fileName = `complaint_${Date.now()}_${currentUser.university_id}.png`;
@@ -1412,6 +1605,7 @@ export default function Page() {
   // 소명서 서면 제출
   const handleSubmitVindication = async (complaintId: number, type: string, comment: string) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const original = complaints.find(c => c.id === complaintId);
       const desc = `[소명서 제출 - 유형: ${type}]\n해명: ${comment}\n---\n기존민원: ${original?.description}`;
       
@@ -1437,6 +1631,7 @@ export default function Page() {
   const handleSubscribeNotification = async () => {
     if (!currentUser || !selectedFacility) return;
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       await supabase.from('notifications').insert({
         user_id: currentUser.id,
         room_name: selectedFacility.roomName,
@@ -1462,6 +1657,7 @@ export default function Page() {
     }
 
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const currentResId = seat.current_reservation_id;
 
       await supabase.from('seats').update({
@@ -1515,6 +1711,7 @@ export default function Page() {
     }
 
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const currentResId = seat.current_reservation_id;
 
       await supabase.from('seats').update({
@@ -1556,6 +1753,7 @@ export default function Page() {
   // Admin Actions: Resolve custom complaints
   const handleResolveComplaint = async (complaintId: number, comment: string) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       await supabase.from('complaints').update({
         status: 'RESOLVED',
         resolution_comment: comment,
@@ -1618,6 +1816,7 @@ export default function Page() {
   const handleAdminReserve = async (seatId: number, universityId: string, name: string, durationMinutes: number) => {
     if (!selectedFacility) return;
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       // 1. 대리 예약 대상 학생 프로필 조회/생성
       const fakeEmail = `${universityId}@daegu.ac.kr`;
       const { data: pData } = await supabase.from('profiles').select('id').eq('university_id', universityId).maybeSingle();
@@ -1706,6 +1905,7 @@ export default function Page() {
     const nextStatus = seat.status === "MAINTENANCE" ? "AVAILABLE" : "MAINTENANCE";
 
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       await supabase.from('seats').update({
         status: nextStatus,
         current_reservation_id: null,
@@ -1737,6 +1937,7 @@ export default function Page() {
   // Admin Actions: Operating config updates
   const handleUpdateConfig = async (roomName: string, openTime: string, closeTime: string, maxUseHours: number | null) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       await supabase.from('facility_configs').upsert({
         room_name: roomName,
         open_time: openTime,
@@ -1761,6 +1962,7 @@ export default function Page() {
   // Admin Actions: Look up student information
   const handleSearchStudent = async (studentId: string) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -1783,6 +1985,7 @@ export default function Page() {
   // Admin Actions: Apply penalty to user
   const handleApplyPenalty = async (studentUuid: string, days: number | null, reason: string) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       let penalty_ends = null;
       if (days !== null) {
         penalty_ends = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -1803,6 +2006,7 @@ export default function Page() {
   // Admin Actions: Proxy reservation on behalf of student
   const handleProxyReserve = async (studentUuid: string, studentId: string, studentName: string, facilityId: string, seatId: number, duration: number) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { data: resId, error } = await supabase.rpc('reserve_seat', {
         p_seat_id: seatId,
         p_user_id: studentUuid
@@ -1852,6 +2056,7 @@ export default function Page() {
   // Admin Actions: Proxy checkouts
   const handleProxyCheckout = async (seatId: number, studentUuid: string) => {
     try {
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { error } = await supabase.rpc('return_seat', {
         p_seat_id: seatId,
         p_user_id: studentUuid
@@ -2142,7 +2347,7 @@ export default function Page() {
                 <Clock className="h-32 w-32" />
               </div>
               <div className="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-                <div className="space-y-2">
+                <div className="space-y-2 w-full">
                   <div className="flex flex-wrap items-center gap-2">
                     {!isVerified ? (
                       <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-white/20 border border-white/10 rounded-md inline-block text-amber-100 animate-pulse">
@@ -2163,7 +2368,7 @@ export default function Page() {
                   {!isVerified ? (
                     <>
                       <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
-                        현재 {globalMyReservation.room_name} <span className="underline decoration-wavy decoration-yellow-350 font-extrabold">{globalMyReservation.seat_number}번 좌석</span> 입실 대기 상태입니다.
+                        현재 {(() => { const fac = FACILITIES.find(f => f.roomName === globalMyReservation.room_name); return fac ? `${fac.buildingName} ${fac.name}` : globalMyReservation.room_name; })()} <span className="underline decoration-wavy decoration-yellow-350 font-extrabold">{globalMyReservation.seat_number}번 좌석</span> 입실 대기 상태입니다.
                       </h3>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-amber-100 font-medium">
                         <span className="flex items-center gap-1.5 bg-black/10 border border-white/10 px-2.5 py-1 rounded-xl">
@@ -2180,7 +2385,7 @@ export default function Page() {
                   ) : (
                     <>
                       <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
-                        현재 {globalMyReservation.room_name} <span className="underline decoration-wavy decoration-lime-300 font-extrabold">{globalMyReservation.seat_number}번 좌석</span>을 이용 중입니다.
+                        현재 {(() => { const fac = FACILITIES.find(f => f.roomName === globalMyReservation.room_name); return fac ? `${fac.buildingName} ${fac.name}` : globalMyReservation.room_name; })()} <span className="underline decoration-wavy decoration-lime-300 font-extrabold">{globalMyReservation.seat_number}번 좌석</span>을 이용 중입니다.
                       </h3>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-emerald-100 font-medium">
                         <span className="flex items-center gap-1">
@@ -2201,11 +2406,10 @@ export default function Page() {
                       </div>
                     </>
                   )}
-                </div>
 
-                <div className="flex flex-wrap gap-2 w-full lg:w-auto">
-                  {!isVerified ? (
-                    <>
+                  {/* [TODO 2] 원클릭 빠른 제어 버튼 — 입실 인증 전에만 표시 */}
+                  {!isVerified && (
+                    <div className="flex flex-wrap gap-2 w-full lg:w-auto mt-4 pt-2 border-t border-white/10">
                       <button
                         onClick={() => {
                           if (navigator.geolocation) {
@@ -2251,44 +2455,10 @@ export default function Page() {
                         <LogOut className="h-4 w-4" />
                         <span>예약 취소 (반납)</span>
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => handleExtendSeat(globalMyReservation.id, 60)}
-                        className="flex-1 lg:flex-initial px-4 py-2 bg-white/15 hover:bg-white/25 active:scale-95 border border-white/20 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
-                      >
-                        <span>1시간 연장</span>
-                      </button>
-                      {globalMyReservation.ends_at && globalMyReservation.ends_at !== "22:00:00" && globalMyReservation.use_timer_seconds && globalMyReservation.use_timer_seconds <= 600 ? (
-                        <button
-                          onClick={() => handleCancelEarlyCheckout(globalMyReservation.id)}
-                          className="flex-1 lg:flex-initial px-4 py-2 bg-amber-500 hover:bg-amber-450 active:scale-95 border border-amber-450 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 text-white"
-                        >
-                          <span>조기 퇴실 취소</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            const mins = prompt("몇 분 후 조기 퇴실하시겠습니까? (유예 시간 지정, 예: 10)", "10");
-                            if (mins && !isNaN(Number(mins))) {
-                              handleSetEarlyCheckout(globalMyReservation.id, Number(mins));
-                            }
-                          }}
-                          className="flex-1 lg:flex-initial px-4 py-2 bg-white/10 hover:bg-white/20 active:scale-95 border border-white/15 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1"
-                        >
-                          <span>조기 퇴실 예정 설정</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={handleCheckoutSeat}
-                        className="flex-1 lg:flex-initial px-4 py-2 bg-red-500 hover:bg-red-650 active:scale-95 border border-red-550 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 text-white shadow-md shadow-red-950/20"
-                      >
-                        <span>즉시 반납</span>
-                      </button>
-                    </>
+                    </div>
                   )}
                 </div>
+
               </div>
             </div>
           )}
@@ -2313,7 +2483,7 @@ export default function Page() {
             </div>
             
             {/* Quick stats on banner */}
-            <div className="absolute right-8 bottom-8 hidden md:flex items-center gap-4">
+            <div className="absolute right-8 bottom-8 hidden md:flex items-center gap-3">
               {currentUser.role === "ADMIN" ? (
                 <>
                   <div className="bg-white/10 backdrop-blur-xs border border-white/10 px-4 py-2.5 rounded-2xl text-center font-bold">
@@ -2333,6 +2503,48 @@ export default function Page() {
                     </span>
                   </div>
                 </>
+              ) : globalMyReservation ? (
+                <>
+                  <div className="bg-white/10 backdrop-blur-xs border border-white/10 px-4 py-2.5 rounded-2xl text-center font-bold max-w-[160px]">
+                    <span className="text-[10px] text-lime-300 block leading-none">내 예약 공간</span>
+                    {(() => {
+                      const fac = FACILITIES.find(f => f.roomName === globalMyReservation.room_name);
+                      return fac ? (
+                        <>
+                          <span className="text-[10px] font-bold text-white/70 mt-0.5 block leading-tight">{fac.buildingName}</span>
+                          <span className="text-xs font-black text-white block leading-tight">{fac.name.replace(fac.buildingName, '').trim()}</span>
+                        </>
+                      ) : (
+                        <span className="text-sm font-black text-white mt-1 block leading-tight">{globalMyReservation.room_name}</span>
+                      );
+                    })()}
+                  </div>
+                  <div className="bg-white/10 backdrop-blur-xs border border-white/10 px-4 py-2.5 rounded-2xl text-center font-bold">
+                    <span className="text-[10px] text-lime-300 block leading-none">예약 좌석</span>
+                    <span className="text-xl font-black font-mono mt-1 block">
+                      {globalMyReservation.seat_number}번
+                    </span>
+                  </div>
+                  <div className="bg-white/10 backdrop-blur-xs border border-white/10 px-4 py-2.5 rounded-2xl text-center font-bold">
+                    <span className="text-[10px] text-amber-300 block leading-none">
+                      {!isVerified ? "입실 대기" : "남은 시간"}
+                    </span>
+                    <span className="text-xl font-bold font-mono mt-1 block text-amber-200">
+                      {!isVerified
+                        ? `${Math.floor(checkinTimeLeft / 60)}분 ${checkinTimeLeft % 60}초`
+                        : globalMyReservation.use_timer_seconds !== undefined && globalMyReservation.use_timer_seconds > 0
+                        ? `${Math.floor(globalMyReservation.use_timer_seconds / 3600)}시간 ${Math.floor((globalMyReservation.use_timer_seconds % 3600) / 60)}분`
+                        : "종료 임박"}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleCheckoutSeat}
+                    className="px-5 py-3 bg-red-500 hover:bg-red-600 active:scale-95 text-white border border-red-400 rounded-2xl text-xs font-black transition-all cursor-pointer flex flex-col items-center gap-1 shadow-lg shadow-red-950/30"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>즉시 퇴실</span>
+                  </button>
+                </>
               ) : (
                 <>
                   <div className="bg-white/10 backdrop-blur-xs border border-white/10 px-4 py-2.5 rounded-2xl text-center font-bold">
@@ -2350,76 +2562,207 @@ export default function Page() {
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             
-            {/* Sidebar Search section */}
-            <div className="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs h-fit space-y-6 animate-fade-in-up">
-              <div className="border-b border-slate-150 pb-3 flex justify-between items-center">
-                <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
-                  <Building2 className="h-4.5 w-4.5 text-emerald-600" />
-                  <span>상세 통합 검색</span>
-                </h3>
+            {/* Sidebar: 관리자 = 수동 예약 패널 / 학생 = 검색 패널 */}
+            {currentUser.role === "ADMIN" ? (
+              /* ===== 관리자 수동 예약 패널 ===== */
+              <div className="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs h-fit space-y-5 animate-fade-in-up">
+                {/* Header */}
+                <div className="border-b border-slate-150 pb-3">
+                  <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                    <span className="bg-amber-500 text-white rounded p-0.5"><svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></span>
+                    <span>수동 예약 시스템</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-1">학생 기기 오류 시 관리자가 직접 좌석을 배정합니다</p>
+                </div>
+
+                {/* Step 1: Student Info */}
+                <div className="space-y-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl">
+                  <p className="text-[10px] font-extrabold text-amber-700 uppercase tracking-wider">① 학생 정보 입력</p>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 block mb-1">학번 (8자리)</label>
+                      <input
+                        type="text"
+                        maxLength={8}
+                        value={manualStudentId}
+                        onChange={(e) => setManualStudentId(e.target.value.replace(/[^0-9]/g, ""))}
+                        placeholder="예: 20221234"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:border-amber-400 outline-none transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 block mb-1">학생 이름</label>
+                      <input
+                        type="text"
+                        value={manualStudentName}
+                        onChange={(e) => setManualStudentName(e.target.value)}
+                        placeholder="예: 홍길동"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:border-amber-400 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step 2: Facility Selection */}
+                <div className="space-y-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">② 교내시설 선택</p>
+                  <select
+                    value={manualFacility?.id || ""}
+                    onChange={(e) => {
+                      const fac = FACILITIES.find(f => f.id === e.target.value) || null;
+                      setManualFacility(fac);
+                    }}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:border-emerald-500 outline-none transition-all cursor-pointer text-slate-750"
+                  >
+                    <option value="">-- 시설 선택 --</option>
+                    {FACILITIES.map(fac => (
+                      <option key={fac.id} value={fac.id}>{fac.buildingName} · {fac.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Step 3: Seat Map */}
+                {manualFacility && (
+                  <div className="space-y-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="flex justify-between items-center">
+                      <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">③ 좌석 선택</p>
+                      <span className="text-[9px] text-emerald-600 font-bold">
+                        {manualSeats.filter(s => s.status === "AVAILABLE").length}/{manualSeats.length} 빈자리
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1 max-h-52 overflow-y-auto pr-1">
+                      {manualSeats.map(seat => {
+                        const isAvail = seat.status === "AVAILABLE";
+                        const isSelected = seat.id === manualSelectedSeatId;
+                        return (
+                          <button
+                            key={seat.id}
+                            disabled={!isAvail}
+                            onClick={() => setManualSelectedSeatId(isSelected ? null : seat.id)}
+                            className={`rounded-lg border text-[10px] font-bold py-1.5 transition-all cursor-pointer ${
+                              isSelected
+                                ? "bg-amber-500 border-amber-400 text-white shadow-md scale-105"
+                                : isAvail
+                                ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-400"
+                                : "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed opacity-60"
+                            }`}
+                          >
+                            {seat.seat_number}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {manualSelectedSeatId && (
+                      <p className="text-[10px] text-amber-700 font-bold text-center mt-1">
+                        ✓ {manualSeats.find(s => s.id === manualSelectedSeatId)?.seat_number}번 좌석 선택됨
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Step 4: Duration */}
+                <div className="space-y-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">④ 사용 시간 선택</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[30, 60, 90, 120, 180, 240].map(min => (
+                      <button
+                        key={min}
+                        onClick={() => setManualDuration(min)}
+                        className={`py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                          manualDuration === min
+                            ? "bg-emerald-600 border-emerald-500 text-white shadow-md"
+                            : "bg-white border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700"
+                        }`}
+                      >
+                        {min < 60 ? `${min}분` : `${min / 60}시간`}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-slate-400 font-semibold text-center">선택: {manualDuration}분 ({(manualDuration/60).toFixed(1)}h)</p>
+                </div>
+
+                {/* Submit */}
                 <button
-                  onClick={resetFilters}
-                  className="text-[10px] text-slate-400 hover:text-emerald-650 font-bold transition-all cursor-pointer"
+                  onClick={handleAdminManualReserve}
+                  disabled={manualLoading || !manualStudentId || !manualStudentName || !manualFacility || !manualSelectedSeatId}
+                  className="w-full py-3 bg-amber-500 hover:bg-amber-450 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
                 >
-                  필터 초기화
+                  {manualLoading ? (
+                    <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" /><span>처리 중...</span></>
+                  ) : (
+                    <span>✅ 수동 예약 확정</span>
+                  )}
                 </button>
               </div>
+            ) : (
+              /* ===== 학생 검색 패널 ===== */
+              <div className="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs h-fit space-y-6 animate-fade-in-up">
+                <div className="border-b border-slate-150 pb-3 flex justify-between items-center">
+                  <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                    <Building2 className="h-4.5 w-4.5 text-emerald-600" />
+                    <span>상세 통합 검색</span>
+                  </h3>
+                  <button
+                    onClick={resetFilters}
+                    className="text-[10px] text-slate-400 hover:text-emerald-650 font-bold transition-all cursor-pointer"
+                  >
+                    필터 초기화
+                  </button>
+                </div>
 
-              {/* 1. Keyword Input */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">시설명 / 위치 키워드</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">시설명 / 위치 키워드</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={tempKeyword}
+                      onChange={(e) => setTempKeyword(e.target.value)}
+                      placeholder="예: 제1열람실, 스터디룸"
+                      className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">건물별 필터</label>
+                  <select
+                    value={tempBuilding}
+                    onChange={(e) => setTempBuilding(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-emerald-500 outline-none transition-all cursor-pointer font-bold text-slate-750"
+                  >
+                    <option value="ALL">전체 건물</option>
+                    <option value="IT융합관">IT융합관 / 공학관</option>
+                    <option value="사범관">사범관</option>
+                    <option value="재활과학관">재활과학관</option>
+                    <option value="경상관">경상관 (글로벌경영대)</option>
+                    <option value="법정관">법정관 (공공인재대)</option>
+                    <option value="조형관">조형관 (디자인예술대)</option>
+                    <option value="중앙도서관">중앙도서관 (창파도서관)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">최소 수용 인원</label>
                   <input
                     type="text"
-                    value={tempKeyword}
-                    onChange={(e) => setTempKeyword(e.target.value)}
-                    placeholder="예: 제1열람실, 스터디룸"
-                    className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold"
+                    value={tempCapacity}
+                    onChange={(e) => setTempCapacity(e.target.value.replace(/[^0-9]/g, ""))}
+                    placeholder="예: 4 (명)"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold"
                   />
                 </div>
-              </div>
 
-              {/* 2. Building selection */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">건물별 필터</label>
-                <select
-                  value={tempBuilding}
-                  onChange={(e) => setTempBuilding(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-emerald-500 outline-none transition-all cursor-pointer font-bold text-slate-750"
+                <button
+                  type="button"
+                  onClick={() => handleSearchSubmit()}
+                  className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer text-center"
                 >
-                  <option value="ALL">전체 건물</option>
-                  <option value="IT융합관">IT융합관 / 공학관</option>
-                  <option value="사범관">사범관</option>
-                  <option value="재활과학관">재활과학관</option>
-                  <option value="경상관">경상관 (글로벌경영대)</option>
-                  <option value="법정관">법정관 (공공인재대)</option>
-                  <option value="조형관">조형관 (디자인예술대)</option>
-                  <option value="중앙도서관">중앙도서관 (창파도서관)</option>
-                </select>
+                  검색하기
+                </button>
               </div>
+            )}
 
-              {/* 3. Capacity selection */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">최소 수용 인원</label>
-                <input
-                  type="text"
-                  value={tempCapacity}
-                  onChange={(e) => setTempCapacity(e.target.value.replace(/[^0-9]/g, ""))}
-                  placeholder="예: 4 (명)"
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold"
-                />
-              </div>
-
-              {/* [요청 1] 명시적인 검색하기 버튼 */}
-              <button
-                type="button"
-                onClick={() => handleSearchSubmit()}
-                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer text-center"
-              >
-                검색하기
-              </button>
-            </div>
 
             {/* Right toolbar & Card list */}
             <div className="lg:col-span-3 space-y-6">
@@ -2752,6 +3095,7 @@ export default function Page() {
               onApplyPenalty={handleApplyPenalty}
               onProxyReserve={handleProxyReserve}
               onProxyCheckout={handleProxyCheckout}
+              onFocusComplaintSeat={handleFocusComplaintSeat}
             />
             {selectedFacility && (
               <div className="bg-white border border-slate-200 shadow-xs rounded-2xl p-6">

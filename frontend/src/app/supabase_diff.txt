@@ -1,0 +1,920 @@
+﻿diff --git a/frontend/src/app/page.tsx b/frontend/src/app/page.tsx
+index 2b2e15a..dbec4c1 100644
+--- a/frontend/src/app/page.tsx
++++ b/frontend/src/app/page.tsx
+@@ -27,6 +27,7 @@ import {
+ import SeatMap from "@/components/SeatMap";
+ import UserDashboard from "@/components/UserDashboard";
+ import AdminPanel from "@/components/AdminPanel";
++import { supabase } from "@/supabaseClient";
+ 
+ // Models & Types
+ export type SeatStatus = "AVAILABLE" | "OCCUPIED" | "REPORTED_1ST" | "REPORTED_2ND" | "CLEARING";
+@@ -196,6 +197,8 @@ const YellowDropsBackground = () => (
+   </div>
+ );
+ 
++
++
+ export default function Page() {
+   // Authentication & Session States
+   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+@@ -219,7 +222,7 @@ export default function Page() {
+ 
+   // Global State for Reservation desk
+   const [perspective, setPerspective] = useState<"STUDENT" | "ADMIN">("STUDENT");
+-  const [absenceReports, setAbsenceReports] = useState<AbsenceReport[]>(INITIAL_REPORTS);
++  const [absenceReports, setAbsenceReports] = useState<AbsenceReport[]>([]);
+   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
+   
+   // Timer speedup state (60x speed for testing)
+@@ -232,44 +235,211 @@ export default function Page() {
+   }>({ show: false, seatNumber: 0 });
+ 
+   // ----------------------------------------------------
+-  // INDEPENDENT SEAT STATES FOR EACH FACILITY
++  // REAL SUPABASE INTEGRATION STATES & METHODS
+   // ----------------------------------------------------
+   const [facilitySeats, setFacilitySeats] = useState<Record<string, Seat[]>>({});
+ 
+-  // Initialize seats for each facility on component load
+-  useEffect(() => {
+-    const seatMapInit: Record<string, Seat[]> = {};
+-    FACILITIES.forEach(fac => {
+-      seatMapInit[fac.id] = INITIAL_SEATS.map((seat, idx) => {
+-        if (seat.id === 3 || seat.id === 7 || seat.id === 15) {
+-          return { ...seat };
+-        }
+-        const hash = fac.id.charCodeAt(0) + fac.id.charCodeAt(1) + idx;
+-        if (hash % 7 === 0) {
+-          return {
+-            ...seat,
+-            status: "OCCUPIED" as SeatStatus,
+-            current_user_id: `mock-user-${hash}`,
+-            current_user_name: `?꾩쓽?숈깮 (?숇???`,
+-            current_reservation_id: 1000 + hash
+-          };
++  // 1. Base64 ?ъ쭊 ?곗씠?곕? 諛붿씠?덈━濡?蹂?섑븯??Supabase Storage??吏곸젒 ?낅줈?쒗븯???ы띁 ?⑥닔
++  const uploadPhotoToStorage = async (base64String: string, fileName: string): Promise<string> => {
++    try {
++      const base64Data = base64String.replace(/^data:image\/\w+;base64,/, '');
++      const binary = atob(base64Data);
++      const array = [];
++      for (let i = 0; i < binary.length; i++) {
++        array.push(binary.charCodeAt(i));
++      }
++      const blob = new Blob([new Uint8Array(array)], { type: 'image/png' });
++
++      const { data, error } = await supabase.storage
++        .from('evidence-photos')
++        .upload(fileName, blob, {
++          contentType: 'image/png',
++          upsert: true
++        });
++
++      if (error) throw error;
++
++      const { data: urlData } = supabase.storage
++        .from('evidence-photos')
++        .getPublicUrl(fileName);
++
++      return urlData.publicUrl;
++    } catch (err: any) {
++      console.error('?ㅽ넗由ъ? ?대?吏 ?낅줈???먮윭:', err);
++      throw new Error('?ъ쭊 ?뚯씪 ?낅줈??以??먮윭媛 諛쒖깮?덉뒿?덈떎: ' + err.message);
++    }
++  };
++
++  // 2. ?좏깮???쒖꽕臾??대엺??援ъ뿭)??留욎텛??DB?먯꽌 ?ㅼ떆媛?醫뚯꽍 ?꾪솴怨??湲곗쨷???좉퀬瑜?媛?몄삤???듭떖 ?숆린???⑥닔
++  const fetchSeatsAndReports = async () => {
++    if (!selectedFacility) return;
++    try {
++      // A. ?대떦 ?대엺?ㅼ쓽 ?꾩껜 醫뚯꽍 議고쉶
++      const { data: seatsData, error: seatsErr } = await supabase
++        .from('seats')
++        .select('*')
++        .eq('room_name', selectedFacility.roomName)
++        .order('seat_number', { ascending: true });
++
++      if (seatsErr) throw seatsErr;
++
++      // B. ?쒖꽦 ?곹깭???꾩껜 ?덉빟 ?곗씠??議고쉶
++      const { data: resData, error: resErr } = await supabase
++        .from('reservations')
++        .select(`
++          id,
++          seat_id,
++          user_id,
++          status,
++          profiles (
++            university_id,
++            name
++          )
++        `)
++        .eq('status', 'ACTIVE');
++
++      if (resErr) throw resErr;
++
++      // C. ?대떦 ?대엺?ㅼ쓽 PENDING(?湲곗쨷)??遺???좉퀬 議고쉶
++      const { data: reportsData, error: reportsErr } = await supabase
++        .from('absence_reports')
++        .select('*')
++        .eq('status', 'PENDING');
++
++      if (reportsErr) throw reportsErr;
++
++      // D. ?꾨줎?몄뿏??facilitySeats ?곹깭??留욎텛??議곕┰ 諛?媛怨?+      const mappedSeats = (seatsData || []).map((seat: any) => {
++        const activeRes = resData?.find((r: any) => r.seat_id === seat.id);
++        
++        let occupantName = undefined;
++        if (activeRes && activeRes.profiles) {
++          const profile: any = Array.isArray(activeRes.profiles) ? activeRes.profiles[0] : activeRes.profiles;
++          if (profile) occupantName = `${profile.name} (${profile.university_id})`;
+         }
+-        return { ...seat };
++
++        return {
++          id: seat.id,
++          seat_number: seat.seat_number,
++          room_name: seat.room_name,
++          status: seat.status as SeatStatus,
++          current_user_id: activeRes ? activeRes.user_id : undefined,
++          current_user_name: occupantName,
++          current_reservation_id: activeRes ? activeRes.id : undefined,
++          clearing_timer_seconds: seat.clearing_timer_seconds || undefined,
++          use_timer_seconds: seat.use_timer_seconds || undefined,
++          total_duration_minutes: seat.total_duration_minutes || undefined,
++          reserved_at: seat.reserved_at || undefined,
++          ends_at: seat.ends_at || undefined
++        };
+       });
++
++      setFacilitySeats(prev => ({
++        ...prev,
++        [selectedFacility.id]: mappedSeats
++      }));
++
++      // E. 吏꾪뻾 以묒씤 ?좉퀬 紐⑸줉 媛怨?+      const mappedReports = (reportsData || []).map((report: any) => {
++        const firstReportedAt = new Date(report.first_reported_at).getTime();
++        const now = Date.now();
++        const elapsed = Math.floor((now - firstReportedAt) / 1000);
++        const warningTimerSeconds = Math.max(0, 1800 - elapsed);
++
++        return {
++          id: report.id,
++          seat_id: report.seat_id,
++          reporter_id: report.reporter_id,
++          first_photo_url: report.first_photo_url,
++          first_reported_at: report.first_reported_at,
++          second_photo_url: report.second_photo_url || undefined,
++          second_reported_at: report.second_reported_at || undefined,
++          warning_timer_seconds: warningTimerSeconds,
++          status: report.status
++        };
++      });
++
++      setAbsenceReports(mappedReports);
++    } catch (err) {
++      console.error('?ㅼ떆媛??곗씠??議고쉶 ?ㅽ뙣:', err);
++    }
++  };
++
++  // 3. Supabase Auth 媛??諛?濡쒓렇???숆린??媛먯? (理쒖큹 濡쒕뱶 ???몄뀡 蹂듦뎄)
++  useEffect(() => {
++    supabase.auth.getSession().then(({ data: { session } }) => {
++      if (session && session.user) {
++        setIsLoggedIn(true);
++        // profiles ?뚯씠釉붿뿉???몃? ?몄쟻 ?ы빆 ?띾뱷
++        supabase.from('profiles')
++          .select('*')
++          .eq('id', session.user.id)
++          .single()
++          .then(({ data: profile }) => {
++            if (profile) {
++              setCurrentUser({
++                id: profile.id,
++                university_id: profile.university_id,
++                name: profile.name,
++                role: profile.role as "USER" | "ADMIN"
++              });
++              setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
++            }
++          });
++      }
++    });
++
++    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
++      if (session && session.user) {
++        setIsLoggedIn(true);
++        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
++        if (profile) {
++          setCurrentUser({
++            id: profile.id,
++            university_id: profile.university_id,
++            name: profile.name,
++            role: profile.role as "USER" | "ADMIN"
++          });
++          setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
++        }
++      } else {
++        setIsLoggedIn(false);
++        setCurrentUser(null);
++      }
+     });
+-    setFacilitySeats(seatMapInit);
++
++    return () => subscription.unsubscribe();
+   }, []);
+ 
++  // 4. ?쒖꽕臾??좏깮 ?먮뒗 ?곗씠??媛깆떊 ???ㅼ떆媛?PostgreSQL WebSocket 梨꾨꼸 援щ룆 耳쒓린 (Realtime Sync)
++  useEffect(() => {
++    if (!selectedFacility) return;
++    fetchSeatsAndReports();
++
++    const seatChannel = supabase.channel(`realtime:${selectedFacility.id}`)
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'seats' }, () => {
++        fetchSeatsAndReports();
++      })
++      .on('postgres_changes', { event: '*', schema: 'public', table: 'absence_reports' }, () => {
++        fetchSeatsAndReports();
++      })
++      .subscribe();
++
++    return () => {
++      supabase.removeChannel(seatChannel);
++    };
++  }, [selectedFacility]);
++
+   // Currently active seats array based on selected facility
+   const activeSeats = selectedFacility && facilitySeats[selectedFacility.id]
+     ? facilitySeats[selectedFacility.id]
+-    : INITIAL_SEATS;
++    : [];
+ 
+-  // Update helper for facility seats
++  // Helper for setting seats locally (if still needed anywhere, fallback compatibility)
+   const setSeats = (updater: Seat[] | ((prev: Seat[]) => Seat[])) => {
+     if (!selectedFacility) return;
+     setFacilitySeats(prev => {
+-      const current = prev[selectedFacility.id] || INITIAL_SEATS;
++      const current = prev[selectedFacility.id] || [];
+       const nextSeats = typeof updater === "function" ? updater(current) : updater;
+       return {
+         ...prev,
+@@ -305,7 +475,7 @@ export default function Page() {
+     }
+   }, [myReservation?.status]);
+ 
+-  // Timers management effect
++  // Timers local countdown management effect
+   useEffect(() => {
+     const interval = setInterval(() => {
+       // 1. Tick Warning timers
+@@ -334,14 +504,13 @@ export default function Page() {
+             if (seat.status === "CLEARING" && seat.clearing_timer_seconds !== undefined) {
+               const newSeconds = Math.max(0, seat.clearing_timer_seconds - decrement);
+               if (newSeconds === 0) {
+-                return {
+-                  ...seat,
+-                  status: "AVAILABLE",
+-                  current_user_id: undefined,
+-                  current_user_name: undefined,
+-                  current_reservation_id: undefined,
+-                  clearing_timer_seconds: undefined
+-                };
++                // ??대㉧ 留뚮즺 ??DB AVAILABLE ?낅뜲?댄듃 ?먮룞 泥섎━
++                supabase.from('seats').update({
++                  status: 'AVAILABLE',
++                  current_reservation_id: null,
++                  clearing_timer_seconds: null,
++                  updated_at: new Date().toISOString()
++                }).eq('id', seat.id).then(() => fetchSeatsAndReports());
+               }
+               return {
+                 ...seat,
+@@ -353,17 +522,16 @@ export default function Page() {
+             if ((seat.status === "OCCUPIED" || seat.status === "REPORTED_1ST") && seat.use_timer_seconds !== undefined) {
+               const newSeconds = Math.max(0, seat.use_timer_seconds - decrement);
+               if (newSeconds === 0) {
+-                return {
+-                  ...seat,
+-                  status: "AVAILABLE",
+-                  current_user_id: undefined,
+-                  current_user_name: undefined,
+-                  current_reservation_id: undefined,
+-                  reserved_at: undefined,
+-                  ends_at: undefined,
+-                  use_timer_seconds: undefined,
+-                  total_duration_minutes: undefined
+-                };
++                // ??대㉧ 留뚮즺 ??DB 諛섎궔 ?먮룞 泥섎━
++                supabase.from('seats').update({
++                  status: 'AVAILABLE',
++                  current_reservation_id: null,
++                  use_timer_seconds: null,
++                  total_duration_minutes: null,
++                  reserved_at: null,
++                  ends_at: null,
++                  updated_at: new Date().toISOString()
++                }).eq('id', seat.id).then(() => fetchSeatsAndReports());
+               }
+               return {
+                 ...seat,
+@@ -384,14 +552,14 @@ export default function Page() {
+   // Update selected seat details whenever active seats list changes
+   useEffect(() => {
+     if (selectedSeat && selectedFacility) {
+-      const currentList = facilitySeats[selectedFacility.id] || INITIAL_SEATS;
++      const currentList = facilitySeats[selectedFacility.id] || [];
+       const updated = currentList.find(s => s.id === selectedSeat.id);
+       if (updated) setSelectedSeat(updated);
+     }
+   }, [facilitySeats, selectedFacility]);
+ 
+-  // Login handler
+-  const handleLogin = (e: React.FormEvent) => {
++  // Login handler using Supabase Auth
++  const handleLogin = async (e: React.FormEvent) => {
+     e.preventDefault();
+     setLoginError(null);
+ 
+@@ -405,61 +573,118 @@ export default function Page() {
+         return;
+       }
+ 
+-      const profile: Profile = {
+-        id: `student-${studentIdInput.trim()}`,
+-        university_id: studentIdInput.trim(),
+-        name: `${studentNameInput.trim()} (${getRandomDepartment()})`,
+-        role: "USER"
+-      };
++      const email = `${studentIdInput.trim()}@daegu.ac.kr`;
++      const password = `${studentIdInput.trim()}_daegu!`;
++
++      // 1) 濡쒓렇???쒕룄
++      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+       
+-      setCurrentUser(profile);
+-      setIsLoggedIn(true);
+-      setPerspective("STUDENT");
++      if (error) {
++        // 2) 濡쒓렇???ㅽ뙣 ???뚯썝媛??(?ы꽭 ?곕룞 媛?????
++        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
++          email,
++          password,
++          options: {
++            data: {
++              university_id: studentIdInput.trim(),
++              name: `${studentNameInput.trim()} (${getRandomDepartment()})`,
++              role: 'USER'
++            }
++          }
++        });
++
++        if (signUpErr) {
++          setLoginError("?ы꽭 ?몄쬆 怨쇱젙?먯꽌 ?ㅻ쪟媛 諛쒖깮?덉뒿?덈떎: " + signUpErr.message);
++          return;
++        }
++
++        // 媛???꾨즺 ??濡쒓렇???몄뀡 ?ъ떆??+        await supabase.auth.signInWithPassword({ email, password });
++      }
+     } else {
+       if (!adminCodeInput.trim()) {
+         setLoginError("愿由ъ옄 鍮꾨?肄붾뱶瑜??낅젰??二쇱꽭??");
+         return;
+       }
+ 
+-      const profile: Profile = {
+-        id: "admin-session-current",
+-        university_id: "ADM-9942",
+-        name: "?댁쁺???ъ꽌愿",
+-        role: "ADMIN"
+-      };
++      const email = `${adminCodeInput.trim()}@daegu.ac.kr`;
++      const password = `admin_daegu_2026!`;
++
++      // 1) 愿由ъ옄 濡쒓렇???쒕룄
++      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
++
++      if (error) {
++        // 2) 媛??泥섎━ ???+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
++          email,
++          password,
++          options: {
++            data: {
++              university_id: adminCodeInput.trim(),
++              name: "?댁쁺???ъ꽌愿",
++              role: 'ADMIN'
++            }
++          }
++        });
+ 
+-      setCurrentUser(profile);
+-      setIsLoggedIn(true);
+-      setPerspective("ADMIN");
++        if (signUpErr) {
++          setLoginError("愿由ъ옄 ?몄쬆 泥섎━ 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎: " + signUpErr.message);
++          return;
++        }
++
++        await supabase.auth.signInWithPassword({ email, password });
++      }
+     }
+   };
+ 
+-  // Demo direct login helpers
+-  const loginAsDemoStudent = () => {
+-    const profile: Profile = {
+-      id: "user-student-current",
+-      university_id: "20222043",
+-      name: "媛뺣???(?꾩옄怨듯븰怨?",
+-      role: "USER"
+-    };
+-    setCurrentUser(profile);
+-    setIsLoggedIn(true);
+-    setPerspective("STUDENT");
++  // Demo direct login helpers (?곕룞 吏??
++  const loginAsDemoStudent = async () => {
++    setStudentIdInput("20222043");
++    setStudentNameInput("媛뺣???);
++    const email = "20222043@daegu.ac.kr";
++    const password = "20222043_daegu!";
++    
++    const { error } = await supabase.auth.signInWithPassword({ email, password });
++    if (error) {
++      await supabase.auth.signUp({
++        email,
++        password,
++        options: {
++          data: {
++            university_id: "20222043",
++            name: "媛뺣???(?꾩옄怨듯븰怨?",
++            role: 'USER'
++          }
++        }
++      });
++      await supabase.auth.signInWithPassword({ email, password });
++    }
+   };
+ 
+-  const loginAsDemoAdmin = () => {
+-    const profile: Profile = {
+-      id: "user-admin-current",
+-      university_id: "ADM-9942",
+-      name: "?댁쁺???ъ꽌愿",
+-      role: "ADMIN"
+-    };
+-    setCurrentUser(profile);
+-    setIsLoggedIn(true);
+-    setPerspective("ADMIN");
++  const loginAsDemoAdmin = async () => {
++    setAdminCodeInput("ADM-9942");
++    const email = "ADM-9942@daegu.ac.kr";
++    const password = "admin_daegu_2026!";
++
++    const { error } = await supabase.auth.signInWithPassword({ email, password });
++    if (error) {
++      await supabase.auth.signUp({
++        email,
++        password,
++        options: {
++          data: {
++            university_id: "ADM-9942",
++            name: "?댁쁺???ъ꽌愿",
++            role: 'ADMIN'
++          }
++        }
++      });
++      await supabase.auth.signInWithPassword({ email, password });
++    }
+   };
+ 
+-  const handleLogout = () => {
++  const handleLogout = async () => {
++    await supabase.auth.signOut();
+     setIsLoggedIn(false);
+     setCurrentUser(null);
+     setSelectedFacility(null);
+@@ -478,176 +703,173 @@ export default function Page() {
+     setFacilityFilter("ALL");
+   };
+ 
+-  // Helper for random mock departments
+   const getRandomDepartment = () => {
+     const depts = ["?꾩옄怨듯븰怨?, "而댄벂?곌났?숆낵", "?뺣낫?듭떊?숆낵", "湲곌퀎怨듯븰怨?, "寃쎌쁺?숆낵", "臾명뿄?뺣낫?숆낵"];
+     return depts[Math.floor(Math.random() * depts.length)];
+   };
+ 
+-  // Student Actions: Book Seat
+-  const handleReserveSeat = (seatId: number, durationMinutes: number) => {
++  // Student Actions: Book Seat (Supabase RPC reserve_seat ?곕룞)
++  const handleReserveSeat = async (seatId: number, durationMinutes: number) => {
+     if (!currentUser) return;
+-    const now = new Date();
+-    const end = new Date(now.getTime() + durationMinutes * 60 * 1000);
+-    
+-    const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+-    const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+-
+-    setSeats((prev) =>
+-      prev.map((s) =>
+-        s.id === seatId
+-          ? {
+-              ...s,
+-              status: "OCCUPIED",
+-              current_user_id: currentUser.id,
+-              current_user_name: `${currentUser.name}`,
+-              current_reservation_id: Math.floor(Math.random() * 1000),
+-              reserved_at: reserved_at_str,
+-              ends_at: ends_at_str,
+-              use_timer_seconds: durationMinutes * 60,
+-              total_duration_minutes: durationMinutes
+-            }
+-          : s
+-      )
+-    );
++    try {
++      // A. reserve_seat RPC ?⑥닔 ?ㅽ뻾
++      const { data: resId, error } = await supabase.rpc('reserve_seat', {
++        p_seat_id: seatId,
++        p_user_id: currentUser.id
++      });
++
++      if (error) {
++        alert(error.message || "?덉빟???ㅽ뙣?덉뒿?덈떎.");
++        return;
++      }
++
++      // B. ?댁슜 ?쒓컙 諛???대㉧ ?뺣낫瑜?seats ?뚯씠釉붿뿉 諛섏쁺
++      const now = new Date();
++      const end = new Date(now.getTime() + durationMinutes * 60 * 1000);
++      const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
++      const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
++
++      await supabase.from('seats').update({
++        use_timer_seconds: durationMinutes * 60,
++        total_duration_minutes: durationMinutes,
++        reserved_at: reserved_at_str,
++        ends_at: ends_at_str
++      }).eq('id', seatId);
++
++      fetchSeatsAndReports();
++    } catch (err: any) {
++      console.error("?덉빟 ?ㅽ뙣:", err);
++    }
+   };
+ 
+   // Student Actions: Extend Seat Use Time
+-  const handleExtendSeat = (seatId: number, extendMinutes: number) => {
+-    const now = new Date();
+-    const end = new Date(now.getTime() + extendMinutes * 60 * 1000);
+-    
+-    const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+-    
+-    setSeats((prev) =>
+-      prev.map((s) =>
+-        s.id === seatId
+-          ? {
+-              ...s,
+-              ends_at: ends_at_str,
+-              use_timer_seconds: extendMinutes * 60,
+-              total_duration_minutes: extendMinutes
+-            }
+-          : s
+-      )
+-    );
++  const handleExtendSeat = async (seatId: number, extendMinutes: number) => {
++    try {
++      const now = new Date();
++      const end = new Date(now.getTime() + extendMinutes * 60 * 1000);
++      const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
++
++      await supabase.from('seats').update({
++        ends_at: ends_at_str,
++        use_timer_seconds: extendMinutes * 60,
++        total_duration_minutes: extendMinutes
++      }).eq('id', seatId);
++
++      fetchSeatsAndReports();
++    } catch (err: any) {
++      console.error("?쒓컙 ?곗옣 ?ㅽ뙣:", err);
++    }
+   };
+ 
+-  // Student Actions: Checkout/Release Seat
+-  const handleCheckoutSeat = () => {
+-    if (!currentUser) return;
+-    
+-    const reservedFacId = Object.keys(facilitySeats).find(facId => {
+-      return facilitySeats[facId]?.some(s => s.current_user_id === currentUser.id);
+-    });
++  // Student Actions: Checkout/Release Seat (Supabase RPC return_seat ?곕룞)
++  const handleCheckoutSeat = async () => {
++    if (!currentUser || !myReservation) return;
++    try {
++      // A. return_seat RPC ?ㅽ뻾
++      const { error } = await supabase.rpc('return_seat', {
++        p_seat_id: myReservation.id,
++        p_user_id: currentUser.id
++      });
+ 
+-    if (!reservedFacId) return;
++      if (error) {
++        alert(error.message || "諛섎궔???ㅽ뙣?덉뒿?덈떎.");
++        return;
++      }
+ 
+-    setFacilitySeats(prev => {
+-      const nextMap = { ...prev };
+-      nextMap[reservedFacId] = nextMap[reservedFacId].map(s => 
+-        s.current_user_id === currentUser.id
+-          ? {
+-              ...s,
+-              status: "AVAILABLE",
+-              current_user_id: undefined,
+-              current_user_name: undefined,
+-              current_reservation_id: undefined
+-            }
+-          : s
+-      );
+-      return nextMap;
+-    });
++      // B. 醫뚯꽍 ?뺤옣 而щ읆??珥덇린??+      await supabase.from('seats').update({
++        use_timer_seconds: null,
++        total_duration_minutes: null,
++        reserved_at: null,
++        ends_at: null
++      }).eq('id', myReservation.id);
+ 
+-    const activeStudentSeat = facilitySeats[reservedFacId]?.find(s => s.current_user_id === currentUser.id);
+-    if (activeStudentSeat) {
+-      setAbsenceReports((prev) =>
+-        prev.map((r) =>
+-          r.seat_id === activeStudentSeat.id ? { ...r, status: "RESOLVED_RETURNED" } : r
+-        )
+-      );
++      // C. ?湲?以묒씤 蹂몄씤 ?먮━ ?좉퀬媛 ?덈떎硫??댁젣 泥섎━
++      await supabase.from('absence_reports')
++        .update({ status: 'RESOLVED_RETURNED', resolved_at: new Date().toISOString() })
++        .eq('seat_id', myReservation.id)
++        .eq('status', 'PENDING');
++
++      setShowWarningModal(false);
++      fetchSeatsAndReports();
++    } catch (err: any) {
++      console.error("諛섎궔 ?먮윭:", err);
+     }
+-    setShowWarningModal(false);
+   };
+ 
+-  // Student Actions: Confirm Return (Resets warning)
+-  const handleConfirmReturn = () => {
+-    if (!currentUser) return;
+-    
+-    const reservedFacId = Object.keys(facilitySeats).find(facId => {
+-      return facilitySeats[facId]?.some(s => s.current_user_id === currentUser.id);
+-    });
+-
+-    if (!reservedFacId) return;
+-
+-    const myReservedSeat = facilitySeats[reservedFacId]?.find(s => s.current_user_id === currentUser.id);
+-    if (!myReservedSeat) return;
++  // Student Actions: Confirm Return (Resets warning - Supabase RPC confirm_user_returned ?곕룞)
++  const handleConfirmReturn = async () => {
++    if (!currentUser || !myReservation) return;
++    try {
++      const { error } = await supabase.rpc('confirm_user_returned', {
++        p_seat_id: myReservation.id,
++        p_user_id: currentUser.id
++      });
+ 
+-    setFacilitySeats(prev => {
+-      const nextMap = { ...prev };
+-      nextMap[reservedFacId] = nextMap[reservedFacId].map(s => 
+-        s.current_user_id === currentUser.id
+-          ? {
+-              ...s,
+-              status: "OCCUPIED"
+-            }
+-          : s
+-      );
+-      return nextMap;
+-    });
++      if (error) {
++        alert(error.message || "蹂듦? 泥섎━???ㅽ뙣?덉뒿?덈떎.");
++        return;
++      }
+ 
+-    setAbsenceReports((prev) =>
+-      prev.map((r) =>
+-        r.seat_id === myReservedSeat.id && r.status === "PENDING"
+-          ? { ...r, status: "RESOLVED_RETURNED", warning_timer_seconds: undefined }
+-          : r
+-      )
+-    );
+-    setShowWarningModal(false);
++      setShowWarningModal(false);
++      fetchSeatsAndReports();
++    } catch (err: any) {
++      console.error("蹂듦? 泥섎━ ?먮윭:", err);
++    }
+   };
+ 
+-  // Student Actions: 1st Absence Report
+-  const handleReportAbsence1st = (seatId: number, photoUrl: string) => {
++  // Student Actions: 1st Absence Report (Supabase RPC submit_absence_report_1st ?곕룞)
++  const handleReportAbsence1st = async (seatId: number, photoUrl: string) => {
+     if (!currentUser) return;
+-    setSeats((prev) =>
+-      prev.map((s) => (s.id === seatId ? { ...s, status: "REPORTED_1ST" } : s))
+-    );
++    try {
++      // A. Base64 ?대?吏瑜?Supabase Storage??吏곸젒 ?낅줈??+      const fileName = `report_1st_${seatId}_${Date.now()}.png`;
++      const uploadedUrl = await uploadPhotoToStorage(photoUrl, fileName);
++
++      // B. submit_absence_report_1st RPC ?ㅽ뻾
++      const { data: reportId, error } = await supabase.rpc('submit_absence_report_1st', {
++        p_seat_id: seatId,
++        p_reporter_id: currentUser.id,
++        p_photo_url: uploadedUrl
++      });
+ 
+-    const newReport: AbsenceReport = {
+-      id: absenceReports.length + 1,
+-      seat_id: seatId,
+-      reporter_id: currentUser.id,
+-      first_photo_url: photoUrl,
+-      first_reported_at: new Date().toISOString(),
+-      warning_timer_seconds: 1800,
+-      status: "PENDING"
+-    };
++      if (error) {
++        alert(error.message || "1李??좉퀬 泥섎━???ㅽ뙣?덉뒿?덈떎.");
++        return;
++      }
+ 
+-    setAbsenceReports((prev) => [...prev, newReport]);
++      fetchSeatsAndReports();
++    } catch (err: any) {
++      console.error("1李??좉퀬 ?먮윭:", err);
++    }
+   };
+ 
+-  // Student Actions: 2nd Absence Report
+-  const handleReportAbsence2nd = (seatId: number, photoUrl: string) => {
+-    setSeats((prev) =>
+-      prev.map((s) => (s.id === seatId ? { ...s, status: "REPORTED_2ND" } : s))
+-    );
++  // Student Actions: 2nd Absence Report (Supabase RPC submit_absence_report_2nd ?곕룞)
++  const handleReportAbsence2nd = async (seatId: number, photoUrl: string) => {
++    try {
++      // A. Base64 ?대?吏瑜?Supabase Storage???낅줈??+      const fileName = `report_2nd_${seatId}_${Date.now()}.png`;
++      const uploadedUrl = await uploadPhotoToStorage(photoUrl, fileName);
++
++      // B. submit_absence_report_2nd RPC ?ㅽ뻾
++      const { error } = await supabase.rpc('submit_absence_report_2nd', {
++        p_seat_id: seatId,
++        p_photo_url: uploadedUrl
++      });
+ 
+-    setAbsenceReports((prev) =>
+-      prev.map((r) =>
+-        r.seat_id === seatId && r.status === "PENDING"
+-          ? {
+-              ...r,
+-              second_photo_url: photoUrl,
+-              second_reported_at: new Date().toISOString(),
+-              warning_timer_seconds: 0
+-            }
+-          : r
+-      )
+-    );
++      if (error) {
++        alert(error.message || "2李?理쒖쥌 ?좉퀬???ㅽ뙣?덉뒿?덈떎.");
++        return;
++      }
++
++      fetchSeatsAndReports();
++    } catch (err: any) {
++      console.error("2李??좉퀬 ?먮윭:", err);
++    }
+   };
+ 
+-  // Admin Actions: Immediate release
+-  const handleImmediateRelease = (seatId: number) => {
++  // Admin Actions: Immediate release (利됱떆 媛쒕갑)
++  const handleImmediateRelease = async (seatId: number) => {
+     if (!selectedFacility) return;
+     const seat = activeSeats.find(s => s.id === seatId);
+     if (!seat) return;
+@@ -656,31 +878,38 @@ export default function Page() {
+       setForcedCheckoutAlert({ show: true, seatNumber: seat.seat_number });
+     }
+ 
+-    setSeats((prev) =>
+-      prev.map((s) =>
+-        s.id === seatId
+-          ? {
+-              ...s,
+-              status: "AVAILABLE",
+-              current_user_id: undefined,
+-              current_user_name: undefined,
+-              current_reservation_id: undefined
+-            }
+-          : s
+-      )
+-    );
++    try {
++      const currentResId = seat.current_reservation_id;
++
++      // A. 利됱떆 AVAILABLE ?곹깭濡?蹂寃?+      await supabase.from('seats').update({
++        status: 'AVAILABLE',
++        current_reservation_id: null,
++        use_timer_seconds: null,
++        total_duration_minutes: null,
++        reserved_at: null,
++        ends_at: null,
++        clearing_timer_seconds: null,
++        updated_at: new Date().toISOString()
++      }).eq('id', seatId);
++
++      // B. ?湲?以묒씤 ?좉퀬 醫낃껐
++      if (currentResId) {
++        await supabase.from('absence_reports').update({
++          status: 'RESOLVED_RELEASED',
++          release_type: 'IMMEDIATE',
++          resolved_at: new Date().toISOString()
++        }).eq('reservation_id', currentResId).eq('status', 'PENDING');
++      }
+ 
+-    setAbsenceReports((prev) =>
+-      prev.map((r) =>
+-        r.seat_id === seatId && r.status === "PENDING"
+-          ? { ...r, status: "RESOLVED_RELEASED", resolved_at: new Date().toISOString() }
+-          : r
+-      )
+-    );
++      fetchSeatsAndReports();
++    } catch (err) {
++      console.error("利됱떆 媛쒕갑 ?ㅽ뙣:", err);
++    }
+   };
+ 
+-  // Admin Actions: Delayed release
+-  const handleDelayedRelease = (seatId: number) => {
++  // Admin Actions: Delayed release (10遺?臾쇳뭹 ?뺣━ ?곹깭濡?媛쒕갑 ?湲?
++  const handleDelayedRelease = async (seatId: number) => {
+     if (!selectedFacility) return;
+     const seat = activeSeats.find(s => s.id === seatId);
+     if (!seat) return;
+@@ -689,25 +918,33 @@ export default function Page() {
+       setForcedCheckoutAlert({ show: true, seatNumber: seat.seat_number });
+     }
+ 
+-    setSeats((prev) =>
+-      prev.map((s) =>
+-        s.id === seatId
+-          ? {
+-              ...s,
+-              status: "CLEARING",
+-              clearing_timer_seconds: 600
+-            }
+-          : s
+-      )
+-    );
++    try {
++      const currentResId = seat.current_reservation_id;
++
++      // A. CLEARING ?곹깭濡?蹂寃?諛?600珥?10遺? ?ㅼ?以꾨윭 媛??+      await supabase.from('seats').update({
++        status: 'CLEARING',
++        clearing_timer_seconds: 600,
++        use_timer_seconds: null,
++        total_duration_minutes: null,
++        reserved_at: null,
++        ends_at: null,
++        updated_at: new Date().toISOString()
++      }).eq('id', seatId);
++
++      // B. ?湲?以묒씤 ?좉퀬 醫낃껐
++      if (currentResId) {
++        await supabase.from('absence_reports').update({
++          status: 'RESOLVED_RELEASED',
++          release_type: 'DELAYED_10MIN',
++          resolved_at: new Date().toISOString()
++        }).eq('reservation_id', currentResId).eq('status', 'PENDING');
++      }
+ 
+-    setAbsenceReports((prev) =>
+-      prev.map((r) =>
+-        r.seat_id === seatId && r.status === "PENDING"
+-          ? { ...r, status: "RESOLVED_RELEASED", resolved_at: new Date().toISOString() }
+-          : r
+-      )
+-    );
++      fetchSeatsAndReports();
++    } catch (err) {
++      console.error("?뺣━ 媛쒕갑 ?ㅽ뙣:", err);
++    }
+   };
+ 
+   // ----------------------------------------------------

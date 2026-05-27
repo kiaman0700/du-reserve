@@ -77,6 +77,7 @@ interface AdminPanelProps {
   onApplyPenalty: (studentUuid: string, days: number | null, reason: string) => void;
   onProxyReserve: (studentUuid: string, studentId: string, studentName: string, facilityId: string, seatId: number, duration: number) => void;
   onProxyCheckout: (seatId: number, studentUuid: string) => void;
+  onFocusComplaintSeat?: (roomName: string, seatNumber: number) => void;
 }
 
 export default function AdminPanel({
@@ -93,7 +94,8 @@ export default function AdminPanel({
   onSearchStudent,
   onApplyPenalty,
   onProxyReserve,
-  onProxyCheckout
+  onProxyCheckout,
+  onFocusComplaintSeat
 }: AdminPanelProps) {
   // Config state
   const [selectedConfigRoom, setSelectedConfigRoom] = useState<string>("제1열람실");
@@ -258,7 +260,20 @@ export default function AdminPanel({
             {activeComplaints.length > 0 ? (
               <div className="space-y-6 divide-y divide-slate-100">
                 {activeComplaints.map((comp) => (
-                  <div key={comp.id} className="pt-6 first:pt-0 space-y-3 font-semibold text-slate-700">
+                  <div 
+                    key={comp.id} 
+                    onClick={() => {
+                      if (onFocusComplaintSeat && comp.seat_id) {
+                        onFocusComplaintSeat(comp.room_name, comp.seat_id);
+                      }
+                    }}
+                    className={`pt-6 first:pt-0 space-y-3 font-semibold text-slate-700 transition-all duration-300 ${
+                      comp.seat_id && onFocusComplaintSeat 
+                        ? "cursor-pointer hover:bg-slate-50/70 p-3.5 rounded-2xl border border-dashed border-transparent hover:border-emerald-300 hover:shadow-xs" 
+                        : ""
+                    }`}
+                    title={comp.seat_id ? "클릭 시 해당 도면 구역으로 이동 및 좌석을 포커싱합니다." : ""}
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-extrabold text-slate-850">
