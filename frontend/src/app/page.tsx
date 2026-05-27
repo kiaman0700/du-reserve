@@ -165,6 +165,13 @@ export default function Page() {
   // [TODO 5.4] 원터치 포커싱 하이라이트 상태
   const [highlightSeatId, setHighlightSeatId] = useState<number | null>(null);
 
+  // Admin Proxy Action Modal States [TODO 5]
+  const [proxyStudentId, setProxyStudentId] = useState<string>("");
+  const [proxyStudentName, setProxyStudentName] = useState<string>("");
+  const [proxyReserveDuration, setProxyReserveDuration] = useState<number>(120);
+  const [adminPenaltyReason, setAdminPenaltyReason] = useState<string>("상습 소음 유발");
+  const [adminPenaltyDays, setAdminPenaltyDays] = useState<number>(3);
+
   // Selection & Filter States (실제 검색 쿼리용)
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
   const [facilityFilter, setFacilityFilter] = useState<string>("ALL");
@@ -190,6 +197,10 @@ export default function Page() {
   const [perspective, setPerspective] = useState<"STUDENT" | "ADMIN">("STUDENT");
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   const [timerSpeedUp, setTimerSpeedUp] = useState<boolean>(true);
+
+  // [TODO 8] QR/GPS 입실 인증 상태
+  const [isVerified, setIsVerified] = useState<boolean>(false);
+  const [checkinTimeLeft, setCheckinTimeLeft] = useState<number>(900);
 
   // Alert State for forced checkout
   const [forcedCheckoutAlert, setForcedCheckoutAlert] = useState<{ show: boolean; seatNumber: number }>({ show: false, seatNumber: 0 });
@@ -724,10 +735,36 @@ export default function Page() {
         }
       });
 
+      // [TODO 8] Tick Checkin countdown
+      setCheckinTimeLeft((prev) => {
+        if (isVerified) return 900;
+        return Math.max(0, prev - decrement);
+      });
+
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [timerSpeedUp, facilityConfigs, dbSeats]);
+  }, [timerSpeedUp, facilityConfigs, dbSeats, isVerified]);
+
+  // [TODO 8] 입실 인증 만료 시 자동 예약 폭파
+  useEffect(() => {
+    if (myReservation && !isVerified && checkinTimeLeft === 0) {
+      alert("⏱️ 15분 입실 확인 유예 시간이 만료되어 예약이 자동 취소(폭파) 및 좌석이 개방되었습니다.");
+      handleCheckoutSeat();
+    }
+  }, [checkinTimeLeft, isVerified, myReservation]);
+
+  useEffect(() => {
+    if (!myReservation) {
+      setIsVerified(false);
+      setCheckinTimeLeft(900);
+    }
+  }, [myReservation]);
+
+  const handleVerifyCheckin = () => {
+    setIsVerified(true);
+    alert("✓ 입실 인증이 성공적으로 완료되었습니다. 즐거운 학습 시간 되세요!");
+  };
 
   // Sync selected seat details when facility updates
   useEffect(() => {
@@ -812,7 +849,7 @@ export default function Page() {
       }
 
       const email = `${studentIdInput.trim()}@daegu.ac.kr`;
-      const password = `${studentIdInput.trim()}__daegu!`; // 기존 default 암호화 또는 사용자 지정
+      const password = studentPasswordInput.trim(); // [TODO 1] Use user entered portal password
 
       try {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -893,6 +930,7 @@ export default function Page() {
   // Direct login helpers for easy testing
   const loginAsDemoStudent = async () => {
     setStudentIdInput("20222043");
+    setStudentPasswordInput("20222043__daegu!");
     setStudentNameInput("강민성");
     const email = "20222043@daegu.ac.kr";
     const password = "20222043__daegu!";
@@ -1879,6 +1917,24 @@ export default function Page() {
     return true;
   });
 
+
+  // [TODO 9] 실시간 소음 온도 Heatmap 계산
+  const getNoiseState = () => {
+    if (!selectedFacility) return { noiseLevel: "COZY" as const, noiseComplaintsCount: 0 };
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const noiseReports = complaints.filter(c => 
+      c.category === "NOISE" && 
+      c.room_name === selectedFacility.roomName && 
+      c.created_at > oneHourAgo
+    );
+    const count = noiseReports.length;
+    let noiseLevel: "COZY" | "MURMUR" | "WARN" = "COZY";
+    if (count === 1) noiseLevel = "MURMUR";
+    else if (count >= 2) noiseLevel = "WARN";
+    return { noiseLevel, noiseComplaintsCount: count };
+  };
+  const { noiseLevel, noiseComplaintsCount } = getNoiseState();
+
   // Login view if not logged in
   if (!isLoggedIn || !currentUser) {
     return (
@@ -1967,14 +2023,14 @@ export default function Page() {
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">성명</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">포털 비밀번호</label>
                     <div className="relative">
-                      <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-450" />
+                      <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-455" />
                       <input
-                        type="text"
-                        value={studentNameInput}
-                        onChange={(e) => setStudentNameInput(e.target.value)}
-                        placeholder="성함 입력"
+                        type="password"
+                        value={studentPasswordInput}
+                        onChange={(e) => setStudentPasswordInput(e.target.value)}
+                        placeholder="포털 비밀번호 입력"
                         className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
                       />
                     </div>
@@ -2286,18 +2342,33 @@ export default function Page() {
             {/* Right toolbar & Card list */}
             <div className="lg:col-span-3 space-y-6">
               
-              {/* [요청 3] 카테고리 탭 분류 기준의 시설명 직관화 */}
+              {/* [요청 3] 카테고리 탭 분류 기준의 시설명 직관화 및 [TODO 4] 관리자 소속 대학/담당 시설물 자동 필터링 */}
               <div className="flex flex-wrap bg-white p-1 rounded-xl border border-slate-200 shadow-2xs w-fit gap-1">
-                {[
-                  { label: "전체 구역", key: "ALL" },
-                  { label: "창파도서관", key: "library" },
-                  { label: "IT·공과대학", key: "it-eng" },
-                  { label: "사범대학", key: "edu" },
-                  { label: "재활과학대학", key: "rehab" },
-                  { label: "글로벌경영대학", key: "biz" },
-                  { label: "공공인재대학", key: "public" },
-                  { label: "디자인예술대학", key: "design" }
-                ].map((btn) => {
+                {(currentUser?.role === "ADMIN" && currentUser.managed_college_id
+                  ? [
+                      { label: "전체 구역", key: "ALL" },
+                      { 
+                        label: currentUser.managed_college_id === "library" ? "창파도서관" : 
+                               currentUser.managed_college_id === "it-eng" ? "IT·공과대학" : 
+                               currentUser.managed_college_id === "edu" ? "사범대학" : 
+                               currentUser.managed_college_id === "rehab" ? "재활과학대학" : 
+                               currentUser.managed_college_id === "biz" ? "글로벌경영대학" : 
+                               currentUser.managed_college_id === "public" ? "공공인재대학" : 
+                               currentUser.managed_college_id === "design" ? "디자인예술대학" : "담당 구역", 
+                        key: currentUser.managed_college_id 
+                      }
+                    ]
+                  : [
+                      { label: "전체 구역", key: "ALL" },
+                      { label: "창파도서관", key: "library" },
+                      { label: "IT·공과대학", key: "it-eng" },
+                      { label: "사범대학", key: "edu" },
+                      { label: "재활과학대학", key: "rehab" },
+                      { label: "글로벌경영대학", key: "biz" },
+                      { label: "공공인재대학", key: "public" },
+                      { label: "디자인예술대학", key: "design" }
+                    ]
+                ).map((btn) => {
                   const isActive = facilityFilter === btn.key;
                   return (
                     <button
@@ -2562,6 +2633,11 @@ export default function Page() {
               setTimerSpeedUp={setTimerSpeedUp}
               selectedFacility={selectedFacility}
               allSeats={activeSeats}
+              checkinTimeLeft={checkinTimeLeft}
+              isVerified={isVerified}
+              onVerifyCheckin={handleVerifyCheckin}
+              noiseLevel={noiseLevel}
+              noiseComplaintsCount={noiseComplaintsCount}
             />
 
             <div className="bg-white border border-slate-200 shadow-xs rounded-2xl p-6">
@@ -2571,6 +2647,9 @@ export default function Page() {
                 selectedSeatId={selectedSeat?.id || null}
                 userReservationSeatId={myReservation?.id || null}
                 selectedFacility={selectedFacility}
+                noiseLevel={noiseLevel}
+                highlightSeatId={highlightSeatId}
+                complaints={complaints}
               />
             </div>
           </div>
@@ -2592,6 +2671,24 @@ export default function Page() {
               onProxyReserve={handleProxyReserve}
               onProxyCheckout={handleProxyCheckout}
             />
+            {selectedFacility && (
+              <div className="bg-white border border-slate-200 shadow-xs rounded-2xl p-6">
+                <h3 className="text-sm font-extrabold text-slate-800 mb-4 pb-2 border-b border-slate-100 flex items-center justify-between">
+                  <span>실시간 좌석 배치도 (관리자 관제 모드)</span>
+                  <span className="text-[10px] text-red-500 font-extrabold animate-pulse">⚠️ 도면 좌석 클릭 시 즉석 대리 행정 모달 활성화</span>
+                </h3>
+                <SeatMap
+                  seats={activeSeats}
+                  onSelectSeat={setSelectedSeat}
+                  selectedSeatId={selectedSeat?.id || null}
+                  userReservationSeatId={null}
+                  selectedFacility={selectedFacility}
+                  noiseLevel={noiseLevel}
+                  highlightSeatId={highlightSeatId}
+                  complaints={complaints}
+                />
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -2660,6 +2757,235 @@ export default function Page() {
                 className="bg-red-655 hover:bg-red-550 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-md transition-all active:scale-95 cursor-pointer"
               >
                 확인 및 닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* [TODO 5] 관리자 전용 즉석 대리 조치 모달 */}
+      {selectedSeat && perspective === "ADMIN" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-md overflow-hidden rounded-3xl border border-emerald-250 bg-white shadow-2xl animate-scale-up">
+            <div className="bg-emerald-800 border-b border-emerald-700 px-6 py-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-emerald-350" />
+                <h3 className="font-extrabold text-sm sm:text-base">[관리자 대리 행정] {selectedSeat.seat_number}번 좌석</h3>
+              </div>
+              <button onClick={() => setSelectedSeat(null)} className="text-white/80 hover:text-white transition-all cursor-pointer">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              {/* Seat Details */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-1.5 font-bold">
+                <div className="flex justify-between">
+                  <span className="text-slate-400">현재 상태:</span>
+                  <span className={`font-extrabold ${
+                    selectedSeat.status === "AVAILABLE" ? "text-emerald-600" :
+                    selectedSeat.status === "MAINTENANCE" ? "text-slate-500" : "text-amber-600"
+                  }`}>
+                    {selectedSeat.status === "AVAILABLE" && "🟢 예약 가능"}
+                    {selectedSeat.status === "MAINTENANCE" && "🛠️ 점검 중"}
+                    {selectedSeat.status === "OCCUPIED" && "👤 이용 중"}
+                    {selectedSeat.status === "REPORTED_1ST" && "⚠️ 1차 경고"}
+                    {selectedSeat.status === "REPORTED_2ND" && "🚨 2차 신고 대기"}
+                    {selectedSeat.status === "CLEARING" && "🧹 정리 중 (10분)"}
+                  </span>
+                </div>
+                {selectedSeat.status !== "AVAILABLE" && selectedSeat.status !== "MAINTENANCE" && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">이용 학생:</span>
+                      <span className="text-slate-800">{selectedSeat.current_user_name || "학부생"}</span>
+                    </div>
+                    {selectedSeat.reserved_at && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">이용 시간:</span>
+                        <span className="text-slate-800">{selectedSeat.reserved_at} ~ {selectedSeat.ends_at}</span>
+                      </div>
+                    )}
+                    {selectedSeat.use_timer_seconds !== undefined && (
+                      <div className="flex justify-between text-emerald-655 font-extrabold">
+                        <span>남은 시간:</span>
+                        <span>{Math.floor(selectedSeat.use_timer_seconds / 3600)}시간 {Math.floor((selectedSeat.use_timer_seconds % 3600) / 60)}분</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* 수동 점검중 (MAINTENANCE) 토글 */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <h4 className="text-xs font-extrabold text-slate-800">🛠️ 수동 점검중 설정</h4>
+                  <p className="text-[10px] text-slate-400 font-semibold">점검중 상태 시 학생들의 예약을 원천 차단합니다.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleAdminToggleMaintenance(selectedSeat.id);
+                    setSelectedSeat(null);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                    selectedSeat.status === "MAINTENANCE"
+                      ? "bg-slate-200 hover:bg-slate-300 border-slate-350 text-slate-700"
+                      : "bg-red-50 hover:bg-red-100 border-red-200 text-red-700"
+                  }`}
+                >
+                  {selectedSeat.status === "MAINTENANCE" ? "🔧 점검 해제" : "🔧 점검중 설정"}
+                </button>
+              </div>
+
+              {/* AVAILABLE 상태인 경우: 대리 즉석 예약 */}
+              {selectedSeat.status === "AVAILABLE" && (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                  <h4 className="text-xs font-extrabold text-emerald-800">🚀 사서 즉석 대리 예약</h4>
+                  
+                  <div className="space-y-1 text-xs">
+                    <label className="text-[10px] uppercase font-bold text-slate-450">학생 학번 (8자리)</label>
+                    <input
+                      type="text"
+                      maxLength={8}
+                      value={proxyStudentId}
+                      onChange={(e) => setProxyStudentId(e.target.value.replace(/[^0-9]/g, ""))}
+                      placeholder="예: 20222043"
+                      className="w-full px-3 py-2 bg-white border border-slate-250 rounded-xl outline-none focus:border-emerald-500 font-bold"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1 text-xs">
+                    <label className="text-[10px] uppercase font-bold text-slate-455">학생 이름</label>
+                    <input
+                      type="text"
+                      value={proxyStudentName}
+                      onChange={(e) => setProxyStudentName(e.target.value)}
+                      placeholder="예: 강민성"
+                      className="w-full px-3 py-2 bg-white border border-slate-255 rounded-xl outline-none focus:border-emerald-500 font-bold"
+                    />
+                  </div>
+
+                  <div className="space-y-1 text-xs">
+                    <label className="text-[10px] uppercase font-bold text-slate-455">대리 예약 이용시간</label>
+                    <select
+                      value={proxyReserveDuration}
+                      onChange={(e) => setProxyReserveDuration(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-white border border-slate-255 rounded-xl outline-none focus:border-emerald-500 font-bold text-slate-700 cursor-pointer"
+                    >
+                      <option value={60}>1시간 (60분)</option>
+                      <option value={120}>2시간 (120분)</option>
+                      <option value={180}>3시간 (180분)</option>
+                      <option value={240}>4시간 (240분)</option>
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={async () => {
+                      if (!proxyStudentId.trim() || !proxyStudentName.trim()) {
+                        alert("대리 예약할 학번과 성명을 모두 입력해 주세요.");
+                        return;
+                      }
+                      await handleAdminReserve(selectedSeat.id, proxyStudentId.trim(), proxyStudentName.trim(), proxyReserveDuration);
+                      setProxyStudentId("");
+                      setProxyStudentName("");
+                      setSelectedSeat(null);
+                      alert("✓ [대리 예약 완료] 학생 대신 즉석 예약 신청이 승인 및 완료되었습니다.");
+                    }}
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+                  >
+                    즉석 대리 예약 실행
+                  </button>
+                </div>
+              )}
+
+              {/* 사용 중 / 경고 상태인 경우: 대리 연장, 대리 퇴실, 패널티 제재 */}
+              {selectedSeat.status !== "AVAILABLE" && selectedSeat.status !== "MAINTENANCE" && (
+                <>
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+                    <h4 className="text-xs font-extrabold text-amber-800">⚡ 대리 즉석 조치</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => {
+                          handleAdminExtend(selectedSeat.id, 60);
+                          setSelectedSeat(null);
+                        }}
+                        className="py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-150 rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
+                      >
+                        ⏱️ 1시간 대리 연장
+                      </button>
+                      <button
+                        onClick={() => {
+                          handleAdminCheckout(selectedSeat.id);
+                          setSelectedSeat(null);
+                        }}
+                        className="py-2.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-150 rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
+                      >
+                        ⚠️ 즉시 대리 반납 (개방)
+                      </button>
+                    </div>
+                    {selectedSeat.status !== "CLEARING" && (
+                      <button
+                        onClick={() => {
+                          handleDelayedRelease(selectedSeat.id);
+                          setSelectedSeat(null);
+                        }}
+                        className="w-full py-2 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-150 rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
+                      >
+                        🧹 물품 수거 및 10분 정리 상태(CLEARING) 전환
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                    <h4 className="text-xs font-extrabold text-red-700">🚨 현장 즉석 제재 및 로그인 차단</h4>
+                    
+                    <div className="space-y-1 text-xs">
+                      <label className="text-[10px] uppercase font-bold text-slate-455">제재 처분 사유</label>
+                      <input
+                        type="text"
+                        value={adminPenaltyReason}
+                        onChange={(e) => setAdminPenaltyReason(e.target.value)}
+                        placeholder="예: 상습 소음 유발 2회 고발"
+                        className="w-full px-3 py-2 bg-white border border-slate-255 rounded-xl outline-none focus:border-red-500 font-bold"
+                      />
+                    </div>
+
+                    <div className="space-y-1 text-xs">
+                      <label className="text-[10px] uppercase font-bold text-slate-455">로그인/예약 차단 기간</label>
+                      <select
+                        value={adminPenaltyDays}
+                        onChange={(e) => setAdminPenaltyDays(Number(e.target.value))}
+                        className="w-full px-3 py-2 bg-white border border-slate-255 rounded-xl outline-none focus:border-red-500 font-bold text-slate-750 cursor-pointer"
+                      >
+                        <option value={3}>3일간 예약 차단</option>
+                        <option value={7}>7일간 예약 차단</option>
+                        <option value={30}>30일간 예약 차단</option>
+                      </select>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const occupantId = selectedSeat.current_user_name?.match(/\(([^)]+)\)/)?.[1] || "20222043";
+                        const occupantOnlyName = selectedSeat.current_user_name?.split(" (")?.[0] || "이용 학생";
+                        handleAdminPenalty(occupantId, occupantOnlyName, adminPenaltyReason, adminPenaltyDays);
+                        setSelectedSeat(null);
+                      }}
+                      className="w-full py-2 bg-red-655 hover:bg-red-550 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+                    >
+                      제재 처분 적용
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            
+            <div className="bg-slate-50 px-6 py-4 flex justify-end border-t border-slate-200">
+              <button
+                onClick={() => setSelectedSeat(null)}
+                className="bg-slate-250 hover:bg-slate-300 text-slate-755 px-5 py-2 rounded-xl text-xs font-bold shadow-md transition-all active:scale-[0.98] cursor-pointer"
+              >
+                닫기
               </button>
             </div>
           </div>

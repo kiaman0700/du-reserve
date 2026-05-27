@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Seat, SeatStatus } from "@/app/page";
-import { Check, ShieldAlert, Sparkles, Clock, Trash2, Wrench } from "lucide-react";
+import { Check, ShieldAlert, Sparkles, Clock, Trash2, Wrench, VolumeX } from "lucide-react";
 
 interface Facility {
   id: string;
@@ -23,6 +23,9 @@ interface SeatMapProps {
   selectedSeatId: number | null;
   userReservationSeatId: number | null;
   selectedFacility: Facility | null;
+  noiseLevel: "COZY" | "MURMUR" | "WARN";
+  highlightSeatId?: number | null;
+  complaints?: any[];
 }
 
 const statusColors: Record<SeatStatus, { bg: string; text: string; label: string; border: string }> = {
@@ -47,7 +50,7 @@ const statusColors: Record<SeatStatus, { bg: string; text: string; label: string
   REPORTED_2ND: {
     bg: "animate-flash-red",
     border: "border-red-400 shadow-xs",
-    text: "text-red-650 font-bold",
+    text: "text-red-655 font-bold",
     label: "2차 신고"
   },
   CLEARING: {
@@ -69,7 +72,10 @@ export default function SeatMap({
   onSelectSeat, 
   selectedSeatId, 
   userReservationSeatId,
-  selectedFacility
+  selectedFacility,
+  noiseLevel,
+  highlightSeatId = null,
+  complaints = []
 }: SeatMapProps) {
   const midPoint = Math.ceil(seats.length / 2);
   const blockA = seats.slice(0, midPoint);
@@ -79,20 +85,37 @@ export default function SeatMap({
     const isSelected = selectedSeatId === seat.id;
     const isMySeat = userReservationSeatId === seat.id;
     const colors = statusColors[seat.status];
+    const isHighlighted = highlightSeatId === seat.id;
+
+    // Check if seat has pending damage/facility complaint
+    const hasPendingDamage = complaints?.some(c => 
+      c.seat_id === seat.id && 
+      (c.category === "DAMAGE" || c.category === "FACILITY") && 
+      c.status === "PENDING"
+    );
 
     return (
       <button
         key={seat.id}
         onClick={() => onSelectSeat(seat)}
         className={`relative flex flex-col justify-between rounded-xl border p-3 text-left transition-all h-[95px] w-full cursor-pointer ${
-          isSelected 
+          isHighlighted
+            ? "ring-4 ring-amber-500 border-amber-550 bg-white scale-[1.05] shadow-xl z-20 animate-pulse"
+            : isSelected 
             ? "ring-2 ring-emerald-600 border-emerald-500 bg-white scale-[1.03] shadow-md" 
             : `${colors.bg} ${colors.border}`
         } duration-200`}
       >
         {/* Seat Badge & Number */}
-        <div className="flex w-full items-center justify-between">
-          <span className="font-mono text-[10px] text-slate-500">Seat {String(seat.seat_number).padStart(2, "0")}</span>
+        <div className="flex w-full items-center justify-between gap-1">
+          <div className="flex items-center gap-1">
+            <span className="font-mono text-[10px] text-slate-500">Seat {String(seat.seat_number).padStart(2, "0")}</span>
+            {hasPendingDamage && (
+              <span className="px-1.5 py-0.5 text-[8px] font-black bg-red-655 text-white rounded border border-red-400 animate-pulse flex items-center gap-0.5" title="시설물 고장 신고 접수됨">
+                ⚠️ 고장
+              </span>
+            )}
+          </div>
           
           {isMySeat ? (
             <span className="flex h-5 items-center gap-1 rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-xs">
@@ -161,24 +184,101 @@ export default function SeatMap({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
+      {/* 📢 [TODO 9] 실시간 소음 온도 Heatmap 전광판 */}
+      <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center space-x-3">
+          <div className={`p-2.5 rounded-xl border text-white transition-colors duration-300 ${
+            noiseLevel === "COZY" ? "bg-emerald-500 border-emerald-400" :
+            noiseLevel === "MURMUR" ? "bg-amber-500 border-amber-400" :
+            "bg-red-500 border-red-400 animate-pulse"
+          }`}>
+            <VolumeX className="h-5 w-5" />
+          </div>
+          <div>
+            <h4 className="text-xs font-extrabold text-slate-800 flex flex-wrap items-center gap-1.5 leading-none">
+              <span>🔊 실시간 소음 온도 Heatmap</span>
+              <span className={`px-2 py-0.5 rounded text-[9px] text-white font-bold transition-colors duration-300 ${
+                noiseLevel === "COZY" ? "bg-emerald-600" :
+                noiseLevel === "MURMUR" ? "bg-amber-600" :
+                "bg-red-600 animate-pulse"
+              }`}>
+                {noiseLevel === "COZY" && "쾌적 (15°C ~ 36.5°C)"}
+                {noiseLevel === "MURMUR" && "웅성웅성 (55°C)"}
+                {noiseLevel === "WARN" && "주의필요 (85°C)"}
+              </span>
+            </h4>
+            <p className="text-[10px] text-slate-400 mt-1 font-semibold leading-none">
+              최근 1시간 내 접수된 학우분들의 실시간 소음 민원 접수량을 기반으로 쾌적 온도가 자동 조정됩니다.
+            </p>
+          </div>
+        </div>
+
+        {/* Heatmap Bar */}
+        <div className="flex items-center gap-2 w-full sm:w-auto font-mono text-[10px] font-bold text-slate-400">
+          <span>쾌적</span>
+          <div className="h-2.5 w-40 bg-slate-200 rounded-full overflow-hidden flex">
+            <div className={`h-full transition-all duration-500 ${
+              noiseLevel === "COZY" ? "w-1/3 bg-emerald-500" : 
+              noiseLevel === "MURMUR" ? "w-2/3 bg-amber-500" : 
+              "w-full bg-red-500 animate-pulse"
+            }`} />
+          </div>
+          <span className={noiseLevel === "WARN" ? "text-red-500 font-bold" : ""}>주의필요</span>
+        </div>
+      </div>
+
       {/* Visual Desk Layout */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Left Block */}
-        <div className="space-y-3">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-1 border-l-2 border-emerald-600">
-            A 구역 ({selectedFacility ? `${selectedFacility.buildingName} 창가석` : "창가 좌석"})
-          </h4>
+        <div className={`space-y-3 p-4 border rounded-2xl transition-all duration-300 ${
+          noiseLevel === "WARN" 
+            ? "border-red-200 bg-red-50/10 shadow-lg shadow-red-500/5 animate-pulse-slow" 
+            : noiseLevel === "MURMUR" 
+            ? "border-amber-250 bg-amber-50/5 shadow-md shadow-amber-500/5" 
+            : "border-slate-150"
+        }`}>
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-1 border-l-2 border-emerald-600">
+              A 구역 ({selectedFacility ? `${selectedFacility.buildingName} 창가석` : "창가 좌석"})
+            </h4>
+            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md ${
+              noiseLevel === "COZY" ? "bg-emerald-50 text-emerald-700 border border-emerald-150" :
+              noiseLevel === "MURMUR" ? "bg-amber-50 text-amber-700 border border-amber-150" :
+              "bg-red-50 text-red-700 border border-red-150 animate-pulse"
+            }`}>
+              {noiseLevel === "COZY" && "🔊 소음 쾌적"}
+              {noiseLevel === "MURMUR" && "🔊 소음 웅성웅성"}
+              {noiseLevel === "WARN" && "🔇 소음 주의요망"}
+            </span>
+          </div>
           <div className="grid grid-cols-3 gap-3">
             {blockA.map(renderSeat)}
           </div>
         </div>
 
         {/* Right Block */}
-        <div className="space-y-3">
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-1 border-l-2 border-lime-505">
-            B 구역 ({selectedFacility ? `${selectedFacility.buildingName} 내측석` : "내측 좌석"})
-          </h4>
+        <div className={`space-y-3 p-4 border rounded-2xl transition-all duration-300 ${
+          noiseLevel === "WARN" 
+            ? "border-red-200 bg-red-50/10 shadow-lg shadow-red-500/5 animate-pulse-slow" 
+            : noiseLevel === "MURMUR" 
+            ? "border-amber-250 bg-amber-50/5 shadow-md shadow-amber-500/5" 
+            : "border-slate-150"
+        }`}>
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider pl-1 border-l-2 border-lime-505">
+              B 구역 ({selectedFacility ? `${selectedFacility.buildingName} 내측석` : "내측 좌석"})
+            </h4>
+            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-md ${
+              noiseLevel === "COZY" ? "bg-emerald-50 text-emerald-700 border border-emerald-150" :
+              noiseLevel === "MURMUR" ? "bg-amber-50 text-amber-700 border border-amber-150" :
+              "bg-red-50 text-red-700 border border-red-150 animate-pulse"
+            }`}>
+              {noiseLevel === "COZY" && "🔊 소음 쾌적"}
+              {noiseLevel === "MURMUR" && "🔊 소음 웅성웅성"}
+              {noiseLevel === "WARN" && "🔇 소음 주의요망"}
+            </span>
+          </div>
           <div className="grid grid-cols-3 gap-3">
             {blockB.map(renderSeat)}
           </div>

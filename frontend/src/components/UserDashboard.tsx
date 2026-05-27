@@ -80,6 +80,11 @@ interface UserDashboardProps {
   setTimerSpeedUp: (val: boolean) => void;
   selectedFacility: Facility | null;
   allSeats: Seat[];
+  checkinTimeLeft: number;
+  isVerified: boolean;
+  onVerifyCheckin: () => void;
+  noiseLevel: "COZY" | "MURMUR" | "WARN";
+  noiseComplaintsCount: number;
 }
 
 export default function UserDashboard({
@@ -105,11 +110,16 @@ export default function UserDashboard({
   timerSpeedUp,
   setTimerSpeedUp,
   selectedFacility,
-  allSeats
+  allSeats,
+  checkinTimeLeft,
+  isVerified,
+  onVerifyCheckin,
+  noiseLevel,
+  noiseComplaintsCount
 }: UserDashboardProps) {
   // UI Panels / Modals States
   const [showCamera, setShowCamera] = useState<boolean>(false);
-  const [cameraPurpose, setCameraPurpose] = useState<"1ST" | "2ND" | "COMPLAINT" | "SELFIE">("1ST");
+  const [cameraPurpose, setCameraPurpose] = useState<"1ST" | "2ND" | "COMPLAINT" | "SELFIE" | "CHECKIN">("1ST");
   const [reportingSeatId, setReportingSeatId] = useState<number | null>(null);
 
   // Form selections
@@ -169,7 +179,7 @@ export default function UserDashboard({
   const isFullyOccupied = totalFacilitySeats > 0 && totalFacilitySeats === occupiedFacilitySeats;
 
   // Open camera handler
-  const handleOpenReportCamera = (purpose: "1ST" | "2ND" | "COMPLAINT" | "SELFIE", seatId: number) => {
+  const handleOpenReportCamera = (purpose: "1ST" | "2ND" | "COMPLAINT" | "SELFIE" | "CHECKIN", seatId: number) => {
     setCameraPurpose(purpose);
     setReportingSeatId(seatId);
     setShowCamera(true);
@@ -186,6 +196,9 @@ export default function UserDashboard({
     } else if (cameraPurpose === "SELFIE") {
       // Self-vindication snapshot uploads selfie and auto resolves
       onConfirmReturn(); 
+    } else if (cameraPurpose === "CHECKIN") {
+      // Complete check-in via QR scan simulation
+      onVerifyCheckin();
     }
     setShowCamera(false);
     setReportingSeatId(null);
@@ -226,12 +239,24 @@ export default function UserDashboard({
   return (
     <div className="space-y-6">
       
+      {/* 📢 [TODO 9] 실시간 정숙 안내 사이니지 전광판 */}
+      {noiseLevel === "WARN" && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3.5 text-red-800 shadow-md animate-pulse-slow overflow-hidden flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 w-full">
+            <VolumeX className="h-5 w-5 text-red-500 flex-shrink-0 animate-bounce" />
+            <div className="text-xs font-bold text-red-900 leading-none animate-pulse">
+              📢 [실시간 열람실 소음 주의보 가동] 최근 1시간 이내에 소음 민원이 {noiseComplaintsCount}건 접수되어 정숙 온도 경보(주의필요)가 가동되었습니다. 학우분들의 쾌적한 학습 분위기를 위해 서로를 배려해 정숙을 유지해 주시기 바랍니다.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ⚠️ 스마트 셀프 소명 (1차 부재 경고 감지 배너) */}
       {userReservation && userReservation.status === "REPORTED_1ST" && myAbsenceWarning && (
         <div className="rounded-2xl border-2 border-red-500 bg-red-50 p-6 shadow-xl animate-pulse-slow">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center space-x-4">
-              <div className="rounded-full bg-red-100 p-3 text-red-650 border border-red-200">
+              <div className="rounded-full bg-red-100 p-3 text-red-655 border border-red-200">
                 <AlertTriangle className="h-6 w-6 text-red-600" />
               </div>
               <div className="space-y-1">
@@ -241,7 +266,7 @@ export default function UserDashboard({
                 <p className="text-xs text-red-800 font-medium">
                   현재 자리에 물건만 있고 비어 있다는 부재 신고가 접수되었습니다. 아래의 소명 버튼을 눌러 카메라로 본인 인증(셀카 촬영)을 하거나 복귀 확인을 진행하세요.
                 </p>
-                <div className="text-xs text-red-950 font-bold font-mono">
+                <div className="text-xs text-red-955 font-bold font-mono">
                   복귀 유예 남은 시간: {formatSecondsToTime(myAbsenceWarning.warning_timer_seconds)}
                 </div>
               </div>
@@ -256,7 +281,7 @@ export default function UserDashboard({
               </button>
               <button
                 onClick={onConfirmReturn}
-                className="bg-white hover:bg-slate-100 text-red-650 px-4 py-2.5 rounded-xl text-xs font-bold border border-red-200 transition-all cursor-pointer"
+                className="bg-white hover:bg-slate-100 text-red-655 px-4 py-2.5 rounded-xl text-xs font-bold border border-red-200 transition-all cursor-pointer"
               >
                 자리 복귀 완료
               </button>
@@ -271,14 +296,32 @@ export default function UserDashboard({
           <div className="absolute right-0 top-0 translate-x-[20%] -translate-y-[20%] w-[180px] h-[180px] rounded-full bg-emerald-500/10 blur-xl pointer-events-none" />
           <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
             <div className="space-y-2">
-              <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-emerald-600/40 border border-emerald-500/30 rounded-md inline-block text-emerald-300">
-                My Active Seat
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-emerald-600/40 border border-emerald-500/30 rounded-md inline-block text-emerald-300">
+                  My Active Seat
+                </span>
+                {isVerified ? (
+                  <span className="px-2 py-0.5 text-[9px] font-extrabold bg-lime-500 border border-lime-400 rounded-md inline-block text-white">
+                    ✓ 실제 입실 인증 완료
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 text-[9px] font-extrabold bg-amber-500 border border-amber-400 rounded-md inline-block text-white animate-pulse">
+                    ⚠️ 15분 내 입실 인증 대기 중
+                  </span>
+                )}
+              </div>
               <h3 className="text-lg font-black tracking-tight text-white flex items-center gap-2 leading-none">
                 <MapPin className="h-5 w-5 text-emerald-300" />
                 <span>{selectedFacility ? `${selectedFacility.buildingName} ${selectedFacility.name}` : userReservation.room_name}</span>
                 <span className="text-amber-300 font-mono font-bold text-xl">{userReservation.seat_number}번석</span>
               </h3>
+              
+              {!isVerified && (
+                <div className="text-xs text-amber-300 font-bold font-mono">
+                  ⏱️ 입실 확인 남은 시간: {Math.floor(checkinTimeLeft / 60)}분 {checkinTimeLeft % 60}초
+                </div>
+              )}
+
               <p className="text-xs text-emerald-200 leading-normal flex items-center gap-1.5 font-medium">
                 <Clock className="h-3.5 w-3.5 text-emerald-400" />
                 <span>남은 이용 시간:</span>
@@ -294,6 +337,26 @@ export default function UserDashboard({
 
             {/* Quick Actions Buttons */}
             <div className="flex flex-wrap items-center gap-3 w-full md:w-auto border-t border-emerald-700/50 pt-4 md:pt-0 md:border-0">
+              {/* GPS 및 QR코드 입실 인증 버튼 추가 */}
+              {!isVerified && (
+                <>
+                  <button
+                    onClick={onVerifyCheckin}
+                    className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-450 text-white border border-amber-400 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01] animate-bounce-short shadow-md shadow-amber-950/20"
+                  >
+                    <MapPin className="h-4 w-4" />
+                    <span>📍 GPS 입실 인증</span>
+                  </button>
+                  <button
+                    onClick={() => handleOpenReportCamera("CHECKIN", userReservation.id)}
+                    className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-550 text-white border border-teal-500 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01] animate-bounce-short shadow-md shadow-teal-950/20"
+                  >
+                    <Camera className="h-4 w-4" />
+                    <span>📷 QR코드 입실 인증</span>
+                  </button>
+                </>
+              )}
+
               {/* 즉시 반납 */}
               <button
                 onClick={onCheckout}
@@ -323,7 +386,7 @@ export default function UserDashboard({
                 </button>
               </div>
 
-              {/* 조기 퇴실 예정 시간 설정 (나갈 시간 미리 예약) */}
+              {/* 조기 퇴실 예정 시간 설정 */}
               <div className="flex items-center gap-1.5 bg-emerald-900/40 border border-emerald-700/60 p-1.5 rounded-xl flex-1 md:flex-none">
                 <select
                   value={earlyCheckoutMinutes}
