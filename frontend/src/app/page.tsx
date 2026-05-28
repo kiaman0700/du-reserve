@@ -354,7 +354,11 @@ export default function Page() {
       if (isMockMode) return;
       const { data, error } = await supabase.from('seats').select('*');
       if (!error && data) {
-        setDbSeats(data);
+        setDbSeats(prev => {
+          const libraryRoomNames = ["제1열람실", "2층 열람실", "5층 열람실"];
+          const nonLibrarySeats = prev.filter(s => !libraryRoomNames.includes(s.room_name));
+          return [...nonLibrarySeats, ...data];
+        });
       }
     } catch (err) {
       console.error('All db seats fetch error:', err);
@@ -420,28 +424,48 @@ export default function Page() {
 
         if (seatsErr) throw seatsErr;
 
-        const { data: resData, error: resErr } = await supabase
-          .from('reservations')
-          .select(`
-            id,
-            seat_id,
-            user_id,
-            status,
-            profiles (
-              university_id,
-              name
-            )
-          `)
-          .eq('status', 'ACTIVE');
+        if (!seatsData || seatsData.length === 0) {
+          throw new Error("No seats found in database for room " + selectedFacility.roomName);
+        }
 
-        if (resErr) throw resErr;
+        let resData: any[] = [];
+        try {
+          const { data, error: resErr } = await supabase
+            .from('reservations')
+            .select(`
+              id,
+              seat_id,
+              user_id,
+              status,
+              profiles (
+                university_id,
+                name
+              )
+            `)
+            .eq('status', 'ACTIVE');
+          if (resErr) {
+            console.warn("Supabase active reservations fetch failed (RLS/join):", resErr);
+          } else if (data) {
+            resData = data;
+          }
+        } catch (resException) {
+          console.warn("Exception fetching active reservations:", resException);
+        }
 
-        const { data: reportsData, error: reportsErr } = await supabase
-          .from('absence_reports')
-          .select('*')
-          .eq('status', 'PENDING');
-
-        if (reportsErr) throw reportsErr;
+        let reportsData: any[] = [];
+        try {
+          const { data, error: reportsErr } = await supabase
+            .from('absence_reports')
+            .select('*')
+            .eq('status', 'PENDING');
+          if (reportsErr) {
+            console.warn("Supabase absence reports fetch failed (RLS):", reportsErr);
+          } else if (data) {
+            reportsData = data;
+          }
+        } catch (repException) {
+          console.warn("Exception fetching absence reports:", repException);
+        }
 
         const mappedSeats = (seatsData || []).map((seat: any) => {
           const activeRes = resData?.find((r: any) => r.seat_id === seat.id);
@@ -504,57 +528,29 @@ export default function Page() {
 
         // Check if current user is subscribed to empty seat notifications for this room
         if (currentUser) {
-          const { data: sub } = await supabase
-            .from('notifications')
-            .select('*')
-            .eq('user_id', currentUser.id)
-            .eq('room_name', selectedFacility.roomName)
-            .eq('status', 'PENDING');
-          setNotificationSubscribed(!!(sub && sub.length > 0));
+          try {
+            const { data: sub } = await supabase
+              .from('notifications')
+              .select('*')
+              .eq('user_id', currentUser.id)
+              .eq('room_name', selectedFacility.roomName)
+              .eq('status', 'PENDING');
+            setNotificationSubscribed(!!(sub && sub.length > 0));
+          } catch (notifErr) {
+            console.warn("Failed to fetch notification status:", notifErr);
+          }
         }
       } catch (err) {
         console.error('실시간 데이터 조회 실패, 로컬 mock 데이터 사용:', err);
-        if (!facilitySeats[selectedFacility.id]) {
-          const roomCapacity = selectedFacility.capacity || 24;
-          const mockSeats = Array.from({ length: roomCapacity }, (_, i) => {
-            const seatNumber = i + 1;
-            const hash = selectedFacility.id.charCodeAt(0) + selectedFacility.id.charCodeAt(1) + i;
-            if (hash % 5 === 0) {
-              return {
-                id: seatNumber,
-                seat_number: seatNumber,
-                room_name: selectedFacility.roomName,
-                status: "OCCUPIED" as SeatStatus,
-                current_user_id: `mock-user-${hash}`,
-                current_user_name: `임의학생 (학부생)`,
-                current_reservation_id: 1000 + hash,
-                use_timer_seconds: 7200,
-                total_duration_minutes: 120,
-                reserved_at: "18:00:00",
-                ends_at: "20:00:00"
-              };
-            }
+        const roomCapacity = selectedFacility.capacity || 24;
+        const mockSeats = Array.from({ length: roomCapacity }, (_, i) => {
+          const seatNumber = i + 1;
+          const hash = selectedFacility.id.charCodeAt(0) + selectedFacility.id.charCodeAt(1) + i;
+          if (hash % 5 === 0) {
             return {
               id: seatNumber,
               seat_number: seatNumber,
               room_name: selectedFacility.roomName,
-              status: "AVAILABLE" as SeatStatus
-            };
-          });
-          setFacilitySeats(prev => ({
-            ...prev,
-            [selectedFacility.id]: mockSeats
-          }));
-        }
-      }
-    } else {
-      // Fallback for mock rooms
-      if (!facilitySeats[selectedFacility.id]) {
-        const mockSeats = INITIAL_SEATS.map((seat, idx) => {
-          const hash = selectedFacility.id.charCodeAt(0) + selectedFacility.id.charCodeAt(1) + idx;
-          if (hash % 7 === 0) {
-            return {
-              ...seat,
               status: "OCCUPIED" as SeatStatus,
               current_user_id: `mock-user-${hash}`,
               current_user_name: `임의학생 (학부생)`,
@@ -565,13 +561,25 @@ export default function Page() {
               ends_at: "20:00:00"
             };
           }
-          return { ...seat };
+          return {
+            id: seatNumber,
+            seat_number: seatNumber,
+            room_name: selectedFacility.roomName,
+            status: "AVAILABLE" as SeatStatus
+          };
         });
         setFacilitySeats(prev => ({
           ...prev,
           [selectedFacility.id]: mockSeats
         }));
       }
+    } else {
+      // Fallback for mock rooms (using existing generated dbSeats of correct capacities)
+      const mockSeats = dbSeats.filter(s => s.room_name === selectedFacility.roomName);
+      setFacilitySeats(prev => ({
+        ...prev,
+        [selectedFacility.id]: mockSeats
+      }));
     }
   };
 
@@ -1226,7 +1234,11 @@ export default function Page() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn("Supabase signOut error, forcing local logout:", err);
+    }
     setIsLoggedIn(false);
     setCurrentUser(null);
     setSelectedFacility(null);
@@ -3117,12 +3129,7 @@ export default function Page() {
               {filteredFacilities.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in-up">
                   {filteredFacilities.map((fac) => {
-                    const isLibraryRoom = fac.collegeId === 'library';
-                    
-                    // If db backed, query from dbSeats, otherwise fallback to local/mock count
-                    const seats = isLibraryRoom 
-                      ? dbSeats.filter(s => s.room_name === fac.roomName)
-                      : (facilitySeats[fac.id] || []);
+                    const seats = dbSeats.filter(s => s.room_name === fac.roomName);
                     
                     const totalCount = seats.length || fac.capacity;
                     const occupied = seats.filter(s => s.status === "OCCUPIED").length;
@@ -3130,7 +3137,7 @@ export default function Page() {
                     const pendingAudit = seats.filter(s => s.status === "REPORTED_2ND").length;
                     const clearing = seats.filter(s => s.status === "CLEARING").length;
                     
-                    const available = totalCount - (occupied + warning + pendingAudit + clearing);
+                    const available = Math.max(0, totalCount - (occupied + warning + pendingAudit + clearing));
 
                     return (
                       <div
