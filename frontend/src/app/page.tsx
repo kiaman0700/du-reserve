@@ -1085,8 +1085,10 @@ export default function Page() {
           const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
           if (signIn2Err) throw signIn2Err;
         }
+        setIsMockMode(false);
       } catch (err: any) {
         console.warn("Supabase auth login failed, using local mock fallback:", err);
+        setIsMockMode(true);
         // Fallback login
         setIsLoggedIn(true);
         setCurrentUser({
@@ -1126,8 +1128,10 @@ export default function Page() {
           const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
           if (signIn2Err) throw signIn2Err;
         }
+        setIsMockMode(false);
       } catch (err: any) {
         console.warn("Supabase auth admin login failed, using local mock fallback:", err);
+        setIsMockMode(true);
         setIsLoggedIn(true);
         setCurrentUser({
           id: getMockUuid(adminCodeInput.trim(), "ADMIN"),
@@ -1166,8 +1170,10 @@ export default function Page() {
         const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
         if (signIn2Err) throw signIn2Err;
       }
+      setIsMockMode(false);
     } catch (err) {
       console.warn("Supabase auth failed, logging in with demo mock session:", err);
+      setIsMockMode(true);
       // Fallback login
       setIsLoggedIn(true);
       setCurrentUser({
@@ -1216,8 +1222,10 @@ export default function Page() {
           managed_college_id: 'library'
         });
       }
+      setIsMockMode(false);
     } catch (err) {
       console.warn("Supabase auth failed, logging in with demo mock session:", err);
+      setIsMockMode(true);
       // Fallback login
       setIsLoggedIn(true);
       setCurrentUser({
@@ -1237,6 +1245,7 @@ export default function Page() {
     } catch (err) {
       console.warn("Supabase signOut error, forcing local logout:", err);
     }
+    setIsMockMode(false);
     setIsLoggedIn(false);
     setCurrentUser(null);
     setSelectedFacility(null);
