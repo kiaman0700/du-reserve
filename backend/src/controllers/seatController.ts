@@ -465,3 +465,91 @@ export const clearComplete = async (req: Request, res: Response) => {
     });
   }
 };
+
+/**
+ * 두 좌표 사이의 대원 거리(Great-Circle Distance)를 미터 단위로 구하는 하버사인(Haversine) 공식 헬퍼 함수
+ */
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // 지구 반경 (미터 단위)
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) *
+    Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // 미터 단위 거리 반환
+}
+
+/**
+ * 9. 서버 사이드 GPS 위/경도 기반 입실 인증 API
+ * POST /api/reservations/check-in
+ */
+export const checkInSeat = async (req: Request, res: Response) => {
+  const { seatId, userId, latitude, longitude } = req.body;
+
+  if (!seatId || !userId || latitude === undefined || longitude === undefined) {
+    return res.status(400).json({
+      error: '잘못된 요청',
+      message: 'seatId, userId, latitude, longitude는 필수 파라미터입니다.'
+    });
+  }
+
+  try {
+    // 9.1. 대구대학교 성산도서관 좌표와의 거리 연산
+    const libraryLat = 35.9015;
+    const libraryLon = 128.8488;
+    const distance = calculateDistance(Number(latitude), Number(longitude), libraryLat, libraryLon);
+
+    // 9.2. 반경 50m 초과 시 거부
+    if (distance > 50) {
+      return res.status(400).json({
+        error: '위치 인증 실패',
+        message: `도서관 반경 50m를 초과했습니다. (현재 도서관으로부터 약 ${Math.round(distance)}m 거리) 올바른 위치에서 인증해 주세요.`
+      });
+    }
+
+    // 9.3. 해당 사용자의 해당 좌석 활성 예약이 존재하는지 확인
+    const { data: reservation, error: resError } = await supabase
+      .from('reservations')
+      .select('*')
+      .eq('seat_id', seatId)
+      .eq('user_id', userId)
+      .eq('status', 'ACTIVE')
+      .single();
+
+    if (resError || !reservation) {
+      return res.status(404).json({
+        error: '예약 없음',
+        message: '인증할 수 있는 활성화된 예약 내역이 존재하지 않습니다.'
+      });
+    }
+
+    // 9.4. 예약 테이블 입실 확인 업데이트
+    const { error: updateError } = await supabase
+      .from('reservations')
+      .update({
+        is_checked_in: true,
+        check_in_at: new Date().toISOString()
+      })
+      .eq('id', reservation.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    return res.status(200).json({
+      message: '입실 인증이 정상적으로 완료되었습니다. 즐거운 학업 시간 되십시오!'
+    });
+  } catch (err: any) {
+    console.error('입실 인증 에러:', err);
+    return res.status(500).json({
+      error: '서버 에러',
+      message: '입실 인증을 진행하는 도중 서버 오류가 발생했습니다: ' + err.message
+    });
+  }
+};

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Seat, Profile, AbsenceReport } from "@/app/page";
 import { 
   Shield, 
@@ -103,6 +103,17 @@ export default function AdminPanel({
   const [configCloseTime, setConfigCloseTime] = useState<string>("22:00");
   const [hasMaxLimit, setHasMaxLimit] = useState<boolean>(true);
   const [configMaxHours, setConfigMaxHours] = useState<number>(3);
+
+  // Automatically load configuration for selected room when component mounts or configs load
+  useEffect(() => {
+    if (configs && configs[selectedConfigRoom]) {
+      const cfg = configs[selectedConfigRoom];
+      setConfigOpenTime(cfg.open_time.slice(0, 5));
+      setConfigCloseTime(cfg.close_time.slice(0, 5));
+      setHasMaxLimit(cfg.max_use_hours !== null);
+      if (cfg.max_use_hours !== null) setConfigMaxHours(cfg.max_use_hours);
+    }
+  }, [configs, selectedConfigRoom]);
 
   // Student search/action states
   const [searchStudentId, setSearchStudentId] = useState<string>("");

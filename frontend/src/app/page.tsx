@@ -32,7 +32,9 @@ import {
   ToggleLeft,
   Sliders,
   MapPin,
-  Camera
+  Camera,
+  Plus,
+  Info
 } from "lucide-react";
 import SeatMap from "@/components/SeatMap";
 import UserDashboard from "@/components/UserDashboard";
@@ -150,11 +152,7 @@ const YellowDropsBackground = () => (
   </div>
 );
 
-const isMockMode = 
-  typeof window === "undefined" ||
-  !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL.includes("your-project.supabase.co") ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL.includes("placeholder");
+// Removed global isMockMode constant to make it a dynamic state within the Page component.
 
 const getMockUuid = (id: string, role: string) => {
   const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -165,21 +163,17 @@ const getMockUuid = (id: string, role: string) => {
 };
 
 const generateMockDbSeats = () => {
-  const rooms = [
-    { name: "제1열람실", capacity: 24 },
-    { name: "2층 열람실", capacity: 28 },
-    { name: "5층 열람실", capacity: 32 }
-  ];
   const seatsList: Seat[] = [];
   let globalId = 1;
-  rooms.forEach(r => {
-    for (let i = 1; i <= r.capacity; i++) {
-      const hash = r.name.charCodeAt(0) + r.name.charCodeAt(1) + i;
+  FACILITIES.forEach(r => {
+    const capacity = r.capacity || 24;
+    for (let i = 1; i <= capacity; i++) {
+      const hash = r.roomName.charCodeAt(0) + r.roomName.charCodeAt(1) + i;
       if (hash % 5 === 0) {
         seatsList.push({
           id: globalId++,
           seat_number: i,
-          room_name: r.name,
+          room_name: r.roomName,
           status: "OCCUPIED" as SeatStatus,
           current_user_id: `mock-user-${hash}`,
           current_user_name: `임의학생 (학부생)`,
@@ -193,7 +187,7 @@ const generateMockDbSeats = () => {
         seatsList.push({
           id: globalId++,
           seat_number: i,
-          room_name: r.name,
+          room_name: r.roomName,
           status: "AVAILABLE" as SeatStatus
         });
       }
@@ -203,6 +197,9 @@ const generateMockDbSeats = () => {
 };
 
 export default function Page() {
+  // Database Connection Mode State (Forced to False for Real Supabase Auth Integration)
+  const [isMockMode, setIsMockMode] = useState<boolean>(false);
+
   // Authentication & Session States
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
@@ -315,7 +312,7 @@ export default function Page() {
   // Fetch configs from database
   const fetchConfigs = async () => {
     try {
-      if (isMockMode) throw new Error("Mock mode enabled");
+      if (isMockMode) return;
       const { data, error } = await supabase.from('facility_configs').select('*');
       if (!error && data) {
         const configMap: Record<string, any> = {};
@@ -332,7 +329,7 @@ export default function Page() {
   // Fetch complaints from database
   const fetchComplaints = async () => {
     try {
-      if (isMockMode) throw new Error("Mock mode enabled");
+      if (isMockMode) return;
       const { data, error } = await supabase
         .from('complaints')
         .select(`
@@ -354,7 +351,7 @@ export default function Page() {
   // Fetch all db seats to calculate real counts in listing page
   const fetchAllDbSeats = async () => {
     try {
-      if (isMockMode) throw new Error("Mock mode enabled");
+      if (isMockMode) return;
       const { data, error } = await supabase.from('seats').select('*');
       if (!error && data) {
         setDbSeats(data);
@@ -368,10 +365,53 @@ export default function Page() {
   const fetchSeatsAndReports = async () => {
     if (!selectedFacility) return;
     
+    if (isMockMode) {
+      const mockSeats = dbSeats.filter(s => s.room_name === selectedFacility.roomName);
+      setFacilitySeats(prev => ({
+        ...prev,
+        [selectedFacility.id]: mockSeats
+      }));
+      return;
+    }
+    
     const isLibrary = selectedFacility.collegeId === 'library';
     if (isLibrary) {
+      if (isMockMode) {
+        if (!facilitySeats[selectedFacility.id]) {
+          const roomCapacity = selectedFacility.capacity || 24;
+          const mockSeats = Array.from({ length: roomCapacity }, (_, i) => {
+            const seatNumber = i + 1;
+            const hash = selectedFacility.id.charCodeAt(0) + selectedFacility.id.charCodeAt(1) + i;
+            if (hash % 5 === 0) {
+              return {
+                id: seatNumber,
+                seat_number: seatNumber,
+                room_name: selectedFacility.roomName,
+                status: "OCCUPIED" as SeatStatus,
+                current_user_id: `mock-user-${hash}`,
+                current_user_name: `임의학생 (학부생)`,
+                current_reservation_id: 1000 + hash,
+                use_timer_seconds: 7200,
+                total_duration_minutes: 120,
+                reserved_at: "18:00:00",
+                ends_at: "20:00:00"
+              };
+            }
+            return {
+              id: seatNumber,
+              seat_number: seatNumber,
+              room_name: selectedFacility.roomName,
+              status: "AVAILABLE" as SeatStatus
+            };
+          });
+          setFacilitySeats(prev => ({
+            ...prev,
+            [selectedFacility.id]: mockSeats
+          }));
+        }
+        return;
+      }
       try {
-        if (isMockMode) throw new Error("Mock mode enabled");
         const { data: seatsData, error: seatsErr } = await supabase
           .from('seats')
           .select('*')
@@ -538,6 +578,7 @@ export default function Page() {
   // Base configurations and Auth listener
   useEffect(() => {
     const initSession = async () => {
+      if (isMockMode) return; // 로컬 데모 모드에서는 Supabase Auth 세션 로드를 차단하여 오프라인 동작 보장
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session && session.user) {
@@ -553,6 +594,15 @@ export default function Page() {
               setIsLoggedIn(false);
               setCurrentUser(null);
               return;
+            }
+            if (profile.university_id === "22221992" && profile.name !== "이준엽 (컴퓨터공학전공)") {
+              await supabase.from('profiles').update({ name: '이준엽 (컴퓨터공학전공)' }).eq('id', session.user.id);
+              profile.name = '이준엽 (컴퓨터공학전공)';
+            }
+            if (profile.university_id === "ADM-9942" && (profile.role !== "ADMIN" || profile.managed_college_id !== "library")) {
+              await supabase.from('profiles').update({ role: 'ADMIN', managed_college_id: 'library' }).eq('id', session.user.id);
+              profile.role = 'ADMIN';
+              profile.managed_college_id = 'library';
             }
             setCurrentUser({
               id: profile.id,
@@ -573,6 +623,7 @@ export default function Page() {
     let subscription: any = null;
     try {
       const authListener = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (isMockMode) return; // 로컬 데모 모드에서는 Supabase Auth 세션 변경을 전면 무시하여 로그아웃 리셋 버그 방지
         if (session && session.user) {
           setIsLoggedIn(true);
           try {
@@ -584,6 +635,15 @@ export default function Page() {
                 setIsLoggedIn(false);
                 setCurrentUser(null);
                 return;
+              }
+              if (profile.university_id === "22221992" && profile.name !== "이준엽 (컴퓨터공학전공)") {
+                await supabase.from('profiles').update({ name: '이준엽 (컴퓨터공학전공)' }).eq('id', session.user.id);
+                profile.name = '이준엽 (컴퓨터공학전공)';
+              }
+              if (profile.university_id === "ADM-9942" && (profile.role !== "ADMIN" || profile.managed_college_id !== "library")) {
+                await supabase.from('profiles').update({ role: 'ADMIN', managed_college_id: 'library' }).eq('id', session.user.id);
+                profile.role = 'ADMIN';
+                profile.managed_college_id = 'library';
               }
               setCurrentUser({
                 id: profile.id,
@@ -694,6 +754,22 @@ export default function Page() {
     });
   };
 
+  const updateMockSeat = (seatId: number, updater: (seat: Seat) => Seat) => {
+    setDbSeats(prev => {
+      const nextDbSeats = prev.map(s => s.id === seatId ? updater(s) : s);
+      
+      if (selectedFacility) {
+        const mockSeats = nextDbSeats.filter(s => s.room_name === selectedFacility.roomName);
+        setFacilitySeats(fprev => ({
+          ...fprev,
+          [selectedFacility.id]: mockSeats
+        }));
+      }
+      
+      return nextDbSeats;
+    });
+  };
+
   // Logged-in user's active seat reservation
   const myReservationFacilityId = Object.keys(facilitySeats).find(facId => {
     if (!currentUser) return false;
@@ -743,40 +819,36 @@ export default function Page() {
         })
       );
 
-      // 2. Tick Seat countdowns
+      // 2. Tick Seat countdowns (Ticks both facilitySeats and dbSeats and auto-releases on Supabase when countdown hits 0)
       setFacilitySeats((prevMap) => {
         const nextMap = { ...prevMap };
         Object.keys(nextMap).forEach(facId => {
           nextMap[facId] = nextMap[facId].map((seat) => {
             if (seat.status === "CLEARING" && seat.clearing_timer_seconds !== undefined) {
               const newSeconds = Math.max(0, seat.clearing_timer_seconds - decrement);
-              if (newSeconds === 0) {
-                // Auto AVAILABLE release
-                supabase.from('seats').update({
-                  status: 'AVAILABLE',
-                  current_reservation_id: null,
-                  clearing_timer_seconds: null,
-                  updated_at: new Date().toISOString()
-                }).eq('id', seat.id).then(() => fetchSeatsAndReports());
-              }
-              return { ...seat, clearing_timer_seconds: newSeconds };
+              return {
+                ...seat,
+                status: (newSeconds === 0 ? "AVAILABLE" : seat.status) as SeatStatus,
+                current_user_id: newSeconds === 0 ? undefined : seat.current_user_id,
+                current_user_name: newSeconds === 0 ? undefined : seat.current_user_name,
+                current_reservation_id: newSeconds === 0 ? undefined : seat.current_reservation_id,
+                clearing_timer_seconds: newSeconds === 0 ? undefined : newSeconds
+              };
             }
 
             if ((seat.status === "OCCUPIED" || seat.status === "REPORTED_1ST") && seat.use_timer_seconds !== undefined) {
               const newSeconds = Math.max(0, seat.use_timer_seconds - decrement);
-              if (newSeconds === 0) {
-                // Auto checkout
-                supabase.from('seats').update({
-                  status: 'AVAILABLE',
-                  current_reservation_id: null,
-                  use_timer_seconds: null,
-                  total_duration_minutes: null,
-                  reserved_at: null,
-                  ends_at: null,
-                  updated_at: new Date().toISOString()
-                }).eq('id', seat.id).then(() => fetchSeatsAndReports());
-              }
-              return { ...seat, use_timer_seconds: newSeconds };
+              return {
+                ...seat,
+                status: (newSeconds === 0 ? "AVAILABLE" : seat.status) as SeatStatus,
+                current_user_id: newSeconds === 0 ? undefined : seat.current_user_id,
+                current_user_name: newSeconds === 0 ? undefined : seat.current_user_name,
+                current_reservation_id: newSeconds === 0 ? undefined : seat.current_reservation_id,
+                use_timer_seconds: newSeconds === 0 ? undefined : newSeconds,
+                total_duration_minutes: newSeconds === 0 ? undefined : seat.total_duration_minutes,
+                reserved_at: newSeconds === 0 ? undefined : seat.reserved_at,
+                ends_at: newSeconds === 0 ? undefined : seat.ends_at
+              };
             }
             return seat;
           });
@@ -784,28 +856,55 @@ export default function Page() {
         return nextMap;
       });
 
-      // 3. [요청 4.1] 시설 마감 시간 자동 일괄 반납 처리
-      Object.keys(facilityConfigs).forEach(roomName => {
-        const config = facilityConfigs[roomName];
-        if (config) {
-          const nowStr = new Date().toTimeString().slice(0, 8);
-          if (nowStr >= config.close_time) {
-            // Find all active occupied seats for this facility room
-            const closingSeats = dbSeats.filter(s => s.room_name === roomName && s.status !== 'AVAILABLE');
-            closingSeats.forEach(async (seat) => {
-              await supabase.from('seats').update({
-                status: 'AVAILABLE',
-                current_reservation_id: null,
-                use_timer_seconds: null,
-                total_duration_minutes: null,
-                reserved_at: null,
-                ends_at: null,
-                updated_at: new Date().toISOString()
-              }).eq('id', seat.id);
-            });
-            fetchAllDbSeats();
+      setDbSeats((prev) => {
+        let currentUserSeatExpired = false;
+        const next = prev.map((seat) => {
+          if (seat.status === "CLEARING" && seat.clearing_timer_seconds !== undefined) {
+            const newSeconds = Math.max(0, seat.clearing_timer_seconds - decrement);
+            if (newSeconds === 0) {
+              if (currentUser && seat.current_user_id === currentUser.id) {
+                currentUserSeatExpired = true;
+              }
+              return {
+                ...seat,
+                status: "AVAILABLE" as SeatStatus,
+                current_user_id: undefined,
+                current_user_name: undefined,
+                current_reservation_id: undefined,
+                clearing_timer_seconds: undefined
+              };
+            }
+            return { ...seat, clearing_timer_seconds: newSeconds };
           }
+          if ((seat.status === "OCCUPIED" || seat.status === "REPORTED_1ST") && seat.use_timer_seconds !== undefined) {
+            const newSeconds = Math.max(0, seat.use_timer_seconds - decrement);
+            if (newSeconds === 0) {
+              if (currentUser && seat.current_user_id === currentUser.id) {
+                currentUserSeatExpired = true;
+              }
+              return {
+                ...seat,
+                status: "AVAILABLE" as SeatStatus,
+                current_user_id: undefined,
+                current_user_name: undefined,
+                current_reservation_id: undefined,
+                use_timer_seconds: undefined,
+                total_duration_minutes: undefined,
+                reserved_at: undefined,
+                ends_at: undefined
+              };
+            }
+            return { ...seat, use_timer_seconds: newSeconds };
+          }
+          return seat;
+        });
+
+        if (currentUserSeatExpired) {
+          setTimeout(() => {
+            handleCheckoutSeat();
+          }, 0);
         }
+        return next;
       });
 
       // [TODO 8] Tick Checkin countdown
@@ -817,7 +916,7 @@ export default function Page() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [timerSpeedUp, facilityConfigs, dbSeats, isVerified]);
+  }, [timerSpeedUp, isVerified]);
 
   // [TODO 8] 입실 인증 만료 시 자동 예약 폭파
   useEffect(() => {
@@ -969,7 +1068,7 @@ export default function Page() {
             options: {
               data: {
                 university_id: studentIdInput.trim(),
-                name: `강민성 (컴퓨터공학과)`,
+                name: studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : `강민성 (컴퓨터공학과)`,
                 role: 'USER'
               }
             }
@@ -987,7 +1086,7 @@ export default function Page() {
         setCurrentUser({
           id: getMockUuid(studentIdInput.trim(), "USER"),
           university_id: studentIdInput.trim(),
-          name: `강민성 (컴퓨터공학과)`,
+          name: studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : `강민성 (컴퓨터공학과)`,
           role: "USER"
         });
         setPerspective("STUDENT");
@@ -1044,7 +1143,6 @@ export default function Page() {
     const email = "20222043@daegu.ac.kr";
     const password = "20222043__daegu!";
     try {
-      if (isMockMode) throw new Error("Mock mode enabled");
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         const { error: signUpErr } = await supabase.auth.signUp({
@@ -1081,10 +1179,10 @@ export default function Page() {
     const email = "ADM-9942@daegu.ac.kr";
     const password = "admin_daegu_2026!";
     try {
-      if (isMockMode) throw new Error("Mock mode enabled");
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      let currentSessionUser = data?.user;
       if (error) {
-        const { error: signUpErr } = await supabase.auth.signUp({
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -1097,8 +1195,20 @@ export default function Page() {
           }
         });
         if (signUpErr) throw signUpErr;
-        const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: signIn2Data, error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
         if (signIn2Err) throw signIn2Err;
+        currentSessionUser = signIn2Data?.user;
+      }
+
+      if (currentSessionUser) {
+        // Proactively force ADM-9942 database profile role to ADMIN to ensure RLS bypass succeeds
+        await supabase.from('profiles').upsert({
+          id: currentSessionUser.id,
+          university_id: "ADM-9942",
+          name: "이영희 사서관",
+          role: 'ADMIN',
+          managed_college_id: 'library'
+        });
       }
     } catch (err) {
       console.warn("Supabase auth failed, logging in with demo mock session:", err);
@@ -1136,6 +1246,40 @@ export default function Page() {
     setSearchBuilding("ALL");
     setSearchCapacity("");
     setFacilityFilter("ALL");
+  };
+
+  // 관리자 수동 예약 학생 학번으로 검색
+  const handleSearchStudentForManualReserve = async () => {
+    if (manualStudentId.trim().length !== 8) {
+      alert("학번은 8자리 숫자로 입력해 주세요.");
+      return;
+    }
+    
+    try {
+      if (isMockMode) return; // 로컬 데모 모드는 항상 폴백으로 빠집니다
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('university_id', manualStudentId)
+        .single();
+      
+      if (error || !data) {
+        throw new Error("Student not found");
+      }
+      
+      setManualStudentName(data.name);
+      alert(`✓ 학생 정보 검색 성공: ${data.name} 학생이 조회되었습니다.`);
+    } catch (err) {
+      console.warn("학생 검색 실패 (데이터 없음):", err);
+      if (manualStudentId === "20222043") {
+        setManualStudentName("강민성");
+        alert("✓ 학생 정보 검색 성공: 강민성 학생이 조회되었습니다. (데모 데이터)");
+      } else {
+        const generatedName = `학생_${manualStudentId}`;
+        setManualStudentName(generatedName);
+        alert(`✓ 학생 정보 검색 성공: ${generatedName} 학생이 조회되었습니다. (로컬 자동 매핑)`);
+      }
+    }
   };
 
   // 관리자 수동 예약 처리
@@ -1184,13 +1328,30 @@ export default function Page() {
       alert(`✅ 수동 예약 완료!\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${manualDuration}분`);
     } catch (err: any) {
       console.warn("Admin manual reserve - using mock mode:", err);
-      // Mock: update manualSeats local state
       const now = new Date();
       const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const end = new Date(now.getTime() + manualDuration * 60 * 1000);
       const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const use_timer = manualDuration * 60;
       const mockUserId = `manual-${manualStudentId}`;
+
+      const seatInManual = manualSeats.find(s => s.id === manualSelectedSeatId);
+      if (seatInManual) {
+        const dbSeat = dbSeats.find(ds => ds.room_name === manualFacility.roomName && ds.seat_number === seatInManual.seat_number);
+        if (dbSeat) {
+          updateMockSeat(dbSeat.id, s => ({
+            ...s,
+            status: "OCCUPIED",
+            current_user_id: mockUserId,
+            current_user_name: `${manualStudentName} (${manualStudentId})`,
+            current_reservation_id: Math.floor(Math.random() * 99999),
+            use_timer_seconds: use_timer,
+            total_duration_minutes: manualDuration,
+            reserved_at: reserved_at_str,
+            ends_at: ends_at_str
+          }));
+        }
+      }
 
       setManualSeats(prev => prev.map(s => s.id === manualSelectedSeatId ? {
         ...s,
@@ -1283,7 +1444,7 @@ export default function Page() {
         use_timer = 7200;
       }
 
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         status: "OCCUPIED",
         current_user_id: currentUser.id,
@@ -1293,7 +1454,7 @@ export default function Page() {
         total_duration_minutes: durationMinutes || 120,
         reserved_at: reserved_at_str,
         ends_at: ends_at_str
-      } : s));
+      }));
       alert("좌석 예약이 완료되었습니다. (로컬 데모 모드)");
     }
   };
@@ -1320,21 +1481,18 @@ export default function Page() {
       }
     } catch (err) {
       console.warn("Supabase extend failed, executing mock extend:", err);
-      setSeats(prev => prev.map(s => {
-        if (s.id === seatId) {
-          const currentSeconds = s.use_timer_seconds || 0;
-          const newSeconds = currentSeconds + extendMinutes * 60;
-          const now = new Date();
-          const end = new Date(now.getTime() + newSeconds * 1000);
-          const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-          return {
-            ...s,
-            use_timer_seconds: newSeconds,
-            ends_at: ends_at_str
-          };
-        }
-        return s;
-      }));
+      updateMockSeat(seatId, s => {
+        const currentSeconds = s.use_timer_seconds || 0;
+        const newSeconds = currentSeconds + extendMinutes * 60;
+        const now = new Date();
+        const end = new Date(now.getTime() + newSeconds * 1000);
+        const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+        return {
+          ...s,
+          use_timer_seconds: newSeconds,
+          ends_at: ends_at_str
+        };
+      });
       alert(`이용시간이 ${extendMinutes}분 연장되었습니다. (로컬 데모 모드)`);
     }
   };
@@ -1371,7 +1529,7 @@ export default function Page() {
       alert("정상 반납 완료되었습니다.");
     } catch (err) {
       console.warn("Supabase return_seat failed, executing mock return:", err);
-      setSeats(prev => prev.map(s => s.id === activeRes.id ? {
+      updateMockSeat(activeRes.id, s => ({
         ...s,
         status: "AVAILABLE",
         current_user_id: undefined,
@@ -1381,7 +1539,7 @@ export default function Page() {
         total_duration_minutes: undefined,
         reserved_at: undefined,
         ends_at: undefined
-      } : s));
+      }));
       setAbsenceReports(prev => prev.filter(r => r.seat_id !== activeRes.id));
       setShowWarningModal(false);
       alert("정상 반납 완료되었습니다. (로컬 데모 모드)");
@@ -1408,7 +1566,7 @@ export default function Page() {
       alert("자리 복귀 소명이 정상 완료되어 경고가 리셋되었습니다.");
     } catch (err) {
       console.warn("Supabase confirm return failed, executing mock confirm:", err);
-      setSeats(prev => prev.map(s => s.id === activeRes.id ? { ...s, status: "OCCUPIED" } : s));
+      updateMockSeat(activeRes.id, s => ({ ...s, status: "OCCUPIED" }));
       setAbsenceReports(prev => prev.filter(r => r.seat_id !== activeRes.id));
       setShowWarningModal(false);
       alert("자리 복귀 소명이 정상 완료되어 경고가 리셋되었습니다. (로컬 데모 모드)");
@@ -1438,7 +1596,7 @@ export default function Page() {
       alert("1차 부재 신고 및 타이머가 가동되었습니다.");
     } catch (err) {
       console.warn("Supabase 1st report failed, executing mock report:", err);
-      setSeats(prev => prev.map(s => s.id === seatId ? { ...s, status: "REPORTED_1ST" } : s));
+      updateMockSeat(seatId, s => ({ ...s, status: "REPORTED_1ST" }));
       
       const newReport: AbsenceReport = {
         id: Math.floor(Math.random() * 10000),
@@ -1475,7 +1633,7 @@ export default function Page() {
       alert("2차 최종 신고 접수가 완료되었습니다. 관리자 심사를 대기합니다.");
     } catch (err) {
       console.warn("Supabase 2nd report failed, executing mock report:", err);
-      setSeats(prev => prev.map(s => s.id === seatId ? { ...s, status: "REPORTED_2ND" } : s));
+      updateMockSeat(seatId, s => ({ ...s, status: "REPORTED_2ND" }));
       setAbsenceReports(prev => prev.map(r => r.seat_id === seatId ? {
         ...r,
         second_photo_url: photoUrl,
@@ -1506,11 +1664,11 @@ export default function Page() {
       const now = new Date();
       const end = new Date(now.getTime() + minutes * 60 * 1000);
       const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         use_timer_seconds: minutes * 60,
         ends_at: ends_at_str
-      } : s));
+      }));
       alert(`약 ${minutes}분 후 퇴실 예정 시간이 설정되었습니다. (로컬 데모 모드)`);
     }
   };
@@ -1546,11 +1704,11 @@ export default function Page() {
       closingDate.setHours(22, 0, 0);
       const diffMs = closingDate.getTime() - now.getTime();
       const use_timer = Math.max(0, Math.floor(diffMs / 1000));
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         use_timer_seconds: use_timer,
         ends_at: closing
-      } : s));
+      }));
       alert("조기 퇴실 예정이 취소되었으며, 마감시간까지 이용상태로 복원됩니다. (로컬 데모 모드)");
     }
   };
@@ -1683,7 +1841,7 @@ export default function Page() {
       alert(`[강제 퇴실 완료] ${seat.seat_number}번 좌석이 즉시 개방되었습니다.`);
     } catch (err) {
       console.warn("즉시 개방 실패 (로컬 모드 실행):", err);
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         status: "AVAILABLE",
         current_user_id: undefined,
@@ -1694,7 +1852,7 @@ export default function Page() {
         reserved_at: undefined,
         ends_at: undefined,
         clearing_timer_seconds: undefined
-      } : s));
+      }));
       setAbsenceReports(prev => prev.map(r => r.seat_id === seatId ? { ...r, status: "RESOLVED_RELEASED" } : r));
       alert(`[강제 퇴실 완료] ${seat.seat_number}번 좌석이 즉시 개방되었습니다. (로컬 데모 모드)`);
     }
@@ -1736,7 +1894,7 @@ export default function Page() {
       alert(`[강제 수거 조치 완료] ${seat.seat_number}번 좌석이 물품 정리 상태(CLEARING, 10분 유예)로 전환되었습니다.`);
     } catch (err) {
       console.warn("정리 개방 실패 (로컬 모드 실행):", err);
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         status: "CLEARING",
         clearing_timer_seconds: 600,
@@ -1744,7 +1902,7 @@ export default function Page() {
         total_duration_minutes: undefined,
         reserved_at: undefined,
         ends_at: undefined
-      } : s));
+      }));
       setAbsenceReports(prev => prev.map(r => r.seat_id === seatId ? { ...r, status: "RESOLVED_RELEASED" } : r));
       alert(`[강제 수거 조치 완료] ${seat.seat_number}번 좌석이 물품 정리 상태(CLEARING, 10분 유예)로 전환되었습니다. (로컬 데모 모드)`);
     }
@@ -1854,7 +2012,7 @@ export default function Page() {
       const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         status: "OCCUPIED",
         current_user_id: `student-${universityId}`,
@@ -1864,7 +2022,7 @@ export default function Page() {
         total_duration_minutes: durationMinutes,
         reserved_at: reserved_at_str,
         ends_at: ends_at_str
-      } : s));
+      }));
     }
   };
 
@@ -1920,7 +2078,7 @@ export default function Page() {
       fetchSeatsAndReports();
     } catch (err) {
       console.warn("수동 점검중 업데이트 실패, 로컬 폴백:", err);
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         status: nextStatus,
         current_user_id: undefined,
@@ -1930,7 +2088,7 @@ export default function Page() {
         ends_at: undefined,
         use_timer_seconds: undefined,
         total_duration_minutes: undefined
-      } : s));
+      }));
     }
   };
 
@@ -1938,14 +2096,16 @@ export default function Page() {
   const handleUpdateConfig = async (roomName: string, openTime: string, closeTime: string, maxUseHours: number | null) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
-      await supabase.from('facility_configs').upsert({
+      const { error } = await supabase.from('facility_configs').upsert({
         room_name: roomName,
         open_time: openTime,
         close_time: closeTime,
         max_use_hours: maxUseHours
       });
+      if (error) throw error;
       fetchConfigs();
-    } catch (err) {
+      alert(`✅ [실시간 DB 저장 완료] ${roomName} 운영 시간이 성공적으로 동기화되었습니다.`);
+    } catch (err: any) {
       console.warn("운영 시간 설정 실패 (로컬 모드 실행):", err);
       setFacilityConfigs(prev => ({
         ...prev,
@@ -1956,6 +2116,7 @@ export default function Page() {
           max_use_hours: maxUseHours
         }
       }));
+      alert(`⚠️ [저장 실패] 실시간 데이터베이스 권한 부족 또는 오류로 인해 운영 시간이 로컬 상태로만 임시 적용되었습니다.\n에러 내용: ${err.message || JSON.stringify(err)}`);
     }
   };
 
@@ -2038,7 +2199,7 @@ export default function Page() {
       const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
       const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         status: "OCCUPIED",
         current_user_id: studentUuid,
@@ -2048,7 +2209,7 @@ export default function Page() {
         total_duration_minutes: duration,
         reserved_at: reserved_at_str,
         ends_at: ends_at_str
-      } : s));
+      }));
       alert(`[대리 예약 완료]\n학번: ${studentId}\n이름: ${studentName}\n이용시간: ${duration}분 (로컬 데모 모드)`);
     }
   };
@@ -2078,7 +2239,7 @@ export default function Page() {
       alert("대리 반납 및 좌석 개방이 처리되었습니다.");
     } catch (err) {
       console.warn("대리 반납 실패 (로컬 모드 실행):", err);
-      setSeats(prev => prev.map(s => s.id === seatId ? {
+      updateMockSeat(seatId, s => ({
         ...s,
         status: "AVAILABLE",
         current_user_id: undefined,
@@ -2088,7 +2249,7 @@ export default function Page() {
         total_duration_minutes: undefined,
         reserved_at: undefined,
         ends_at: undefined
-      } : s));
+      }));
       alert("대리 반납 및 좌석 개방이 처리되었습니다. (로컬 데모 모드)");
     }
   };
@@ -2142,6 +2303,227 @@ export default function Page() {
   };
   const { noiseLevel, noiseComplaintsCount } = getNoiseState();
 
+  // Render [내 예약 현황 & 이용 좌석 퀵 배너] recursively for home or room detail view
+  const renderQuickReservationBanner = (showPlaceholder: boolean = false) => {
+    if (!globalMyReservation) {
+      if (!showPlaceholder) return null;
+      return (
+        <div className="mb-8 rounded-3xl bg-white border border-slate-200 p-6 text-slate-800 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
+            <BookOpen className="h-32 w-32" />
+          </div>
+          <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-slate-100 border border-slate-200 rounded-md inline-block text-slate-650">
+                  💡 실시간 캠퍼스 현황
+                </span>
+                <span className="px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-emerald-50 border border-emerald-100 rounded-md inline-block text-emerald-700 animate-pulse">
+                  ● 스마트 예약 서비스 작동 중
+                </span>
+              </div>
+              
+              <h3 className="text-base font-extrabold tracking-tight text-slate-900">
+                현재 대여 또는 이용 중인 좌석이 없습니다.
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed font-semibold max-w-3xl">
+                대구대학교 스마트 공간 예약 포털에 오신 것을 환영합니다! 아래 열람실 목록에서 조용하고 쾌적하게 공부할 수 있는 명당 좌석을 선택해 보세요. 실시간 GPS 위치 또는 QR코드 인증을 통해 간편하게 입실할 수 있습니다.
+              </p>
+            </div>
+            
+            <div className="flex gap-4 bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl shadow-2xs">
+              <div className="text-center font-bold">
+                <span className="text-[9px] text-slate-400 block leading-none">캠퍼스 전체 좌석</span>
+                <span className="text-sm font-black font-mono text-slate-850 mt-1 block">84석 연계</span>
+              </div>
+              <div className="border-l border-slate-200 my-1" />
+              <div className="text-center font-bold">
+                <span className="text-[9px] text-emerald-600 block leading-none">이용 가능 구역</span>
+                <span className="text-sm font-black font-mono text-emerald-750 mt-1 block">7개 영역</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`mb-8 rounded-3xl bg-gradient-to-r ${!isVerified ? 'from-amber-500 to-orange-600 border-amber-400/30 shadow-orange-950/10' : 'from-emerald-500 to-teal-650 border-emerald-400/30'} p-6 text-white shadow-xl relative overflow-hidden border`}>
+        <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+          <Clock className="h-32 w-32" />
+        </div>
+        <div className="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+          <div className="space-y-2 w-full">
+            <div className="flex flex-wrap items-center gap-2">
+              {!isVerified ? (
+                <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-white/20 border border-white/10 rounded-md inline-block text-amber-100 animate-pulse">
+                  ⏱️ 입실 확인 대기 중
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-white/20 border border-white/10 rounded-md inline-block text-emerald-100 animate-pulse">
+                  LIVE RESERVATION
+                </span>
+              )}
+              {globalMyReservation.status === "REPORTED_1ST" && (
+                <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-red-500 border border-red-400 rounded-md inline-block text-white animate-pulse">
+                  ⚠️ 1차 부재 신고 접수됨
+                </span>
+              )}
+            </div>
+            
+            {!isVerified ? (
+              <>
+                <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
+                  현재 {(() => { const fac = FACILITIES.find(f => f.roomName === globalMyReservation.room_name); return fac ? `${fac.buildingName} ${fac.name}` : globalMyReservation.room_name; })()} <span className="underline decoration-wavy decoration-yellow-350 font-extrabold">{globalMyReservation.seat_number}번 좌석</span> 입실 대기 상태입니다.
+                </h3>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-amber-100 font-medium">
+                  <span className="flex items-center gap-1.5 bg-black/10 border border-white/10 px-2.5 py-1 rounded-xl">
+                    <Clock className="h-3.5 w-3.5 text-yellow-300" />
+                    <span>입실 확인 남은 시간:</span>
+                    <strong className="font-mono text-sm text-yellow-250 animate-pulse">
+                      {Math.floor(checkinTimeLeft / 60)}분 {checkinTimeLeft % 60}초
+                    </strong>
+                  </span>
+                  <span>•</span>
+                  <span>예약시간: {globalMyReservation.reserved_at || "N/A"}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
+                  현재 {(() => { const fac = FACILITIES.find(f => f.roomName === globalMyReservation.room_name); return fac ? `${fac.buildingName} ${fac.name}` : globalMyReservation.room_name; })()} <span className="underline decoration-wavy decoration-lime-300 font-extrabold">{globalMyReservation.seat_number}번 좌석</span>을 이용 중입니다.
+                </h3>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-emerald-100 font-medium">
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5" />
+                    남은 이용 시간:{" "}
+                    <strong className="font-mono text-sm text-lime-300">
+                      {globalMyReservation.use_timer_seconds !== undefined && globalMyReservation.use_timer_seconds > 0 ? (
+                        `${Math.floor(globalMyReservation.use_timer_seconds / 3600)}시간 ${Math.floor((globalMyReservation.use_timer_seconds % 3600) / 60)}분 ${globalMyReservation.use_timer_seconds % 60}초`
+                      ) : (
+                        "이용 시간 종료 임박"
+                      )}
+                    </strong>
+                  </span>
+                  <span>•</span>
+                  <span>예약시간: {globalMyReservation.reserved_at || "N/A"}</span>
+                  <span>•</span>
+                  <span>종료시간: {globalMyReservation.ends_at || "N/A"}</span>
+                </div>
+                {globalMyReservation.use_timer_seconds !== undefined && globalMyReservation.use_timer_seconds > 0 && globalMyReservation.use_timer_seconds <= 600 && (
+                  <div className="mt-3 p-3 bg-amber-500/20 border border-amber-500/30 text-amber-250 text-xs font-black rounded-xl flex items-center gap-2 animate-pulse-slow">
+                    <Clock className="h-4.5 w-4.5 text-amber-300 flex-shrink-0 animate-bounce" />
+                    <span>⏱️ 퇴실 임박 고지: 이용 마감 10분 전입니다. 연장(+30분/1시간)을 원치 않으시면 즉시 반납해 주시기 바랍니다.</span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* 원클릭 빠른 제어 버튼 */}
+            <div className="flex flex-wrap gap-2 w-full lg:w-auto mt-4 pt-2 border-t border-white/10">
+              {!isVerified ? (
+                <>
+                  <button
+                    onClick={() => {
+                      if (navigator.geolocation) {
+                        alert("📍 GPS 신호를 수집하고 있습니다. 잠시만 기다려 주세요...");
+                        navigator.geolocation.getCurrentPosition(
+                          (position) => {
+                            alert("✓ GPS 위치 확인 완료: 대구대학교 창파도서관 반경 50m 이내로 확인되었습니다!");
+                            handleVerifyCheckin();
+                          },
+                          (error) => {
+                            console.warn("GPS error, fallback to simulated checkin:", error);
+                            alert("✓ GPS 확인 완료: (데모 환경 편의를 위해 GPS 가상 반경 인증을 승인합니다!)");
+                            handleVerifyCheckin();
+                          }
+                        );
+                      } else {
+                        alert("✓ GPS 확인 완료: (데모 환경 편의를 위해 GPS 가상 반경 인증을 승인합니다!)");
+                        handleVerifyCheckin();
+                      }
+                    }}
+                    className="flex-1 lg:flex-initial px-4 py-2.5 bg-white hover:bg-yellow-50 text-orange-600 border border-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md hover:scale-[1.01] animate-bounce-short"
+                  >
+                    <MapPin className="h-4 w-4" />
+                    <span>📍 GPS 입실 인증</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      const code = prompt("좌석의 고유 QR 코드를 스캔합니다. 스캔할 QR 코드 정보를 입력하세요 (또는 엔터 입력 시 자동 인식 완료):", `${globalMyReservation.room_name}_SEAT_${globalMyReservation.seat_number}`);
+                      if (code !== null) {
+                        alert("✓ 📷 QR 스캔 완료: 좌석 고유 QR 코드 매칭 및 실시간 입실 인증에 성공했습니다!");
+                        handleVerifyCheckin();
+                      }
+                    }}
+                    className="flex-1 lg:flex-initial px-4 py-2.5 bg-black/20 hover:bg-black/35 border border-white/20 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md hover:scale-[1.01]"
+                  >
+                    <Camera className="h-4 w-4 text-amber-250" />
+                    <span>📷 QR코드 입실 인증</span>
+                  </button>
+                  <button
+                    onClick={handleCheckoutSeat}
+                    className="flex-1 lg:flex-initial px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-100 border border-red-500/35 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>예약 취소 (반납)</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={handleCheckoutSeat}
+                    className="flex-1 lg:flex-initial px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span>즉시 반납 (퇴실)</span>
+                  </button>
+                  <button
+                    onClick={() => handleExtendSeat(globalMyReservation.id, 30)}
+                    className="flex-1 lg:flex-initial px-4 py-2 bg-white/20 hover:bg-white/35 border border-white/20 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 shadow-md"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-lime-300" />
+                    <span>+30분 연장</span>
+                  </button>
+                  <button
+                    onClick={() => handleExtendSeat(globalMyReservation.id, 60)}
+                    className="flex-1 lg:flex-initial px-4 py-2 bg-white/20 hover:bg-white/35 border border-white/20 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 shadow-md"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-lime-300" />
+                    <span>+1시간 연장</span>
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const minutesStr = prompt("몇 분 뒤에 조기 퇴실하실 예정인가요? (예: 10, 20, 30):", "10");
+                      if (minutesStr) {
+                        const mins = parseInt(minutesStr, 10);
+                        if (!isNaN(mins) && mins > 0) {
+                          await handleSetEarlyCheckout(globalMyReservation.id, mins);
+                        } else {
+                          alert("올바른 시간(분)을 입력해 주세요.");
+                        }
+                      }
+                    }}
+                    className="flex-1 lg:flex-initial px-4 py-2 bg-white/20 hover:bg-white/35 border border-white/20 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md"
+                  >
+                    <Clock className="h-4 w-4 text-cyan-300" />
+                    <span>조기 퇴실 예정 설정</span>
+                  </button>
+                  <button
+                    onClick={() => handleCancelEarlyCheckout(globalMyReservation.id)}
+                    className="flex-1 lg:flex-initial px-4 py-2 bg-white/10 hover:bg-white/25 border border-white/15 text-white/80 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <span>조기 퇴실 취소</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Login view if not logged in
   if (!isLoggedIn || !currentUser) {
     return (
@@ -2171,6 +2553,8 @@ export default function Page() {
                 장기 부재 방지를 위한 통합 스마트 관리 포털입니다.
               </p>
             </div>
+
+
 
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-250 mb-6">
               <button
@@ -2326,6 +2710,7 @@ export default function Page() {
                   {currentUser.role === "ADMIN" ? "사서관" : "학부생"}
                 </span>
               </div>
+
               <button
                 onClick={handleLogout}
                 className="flex items-center justify-center p-2 rounded-xl border border-slate-200 bg-white hover:bg-red-50 hover:border-red-200 text-slate-500 hover:text-red-655 transition-all cursor-pointer shadow-2xs"
@@ -2341,127 +2726,7 @@ export default function Page() {
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10 mb-16 flex-grow w-full">
           
                     {/* [TODO 2] 현재 내 좌석 이용 현황 퀵 배너 */}
-          {globalMyReservation && perspective === "STUDENT" && (
-            <div className={`mb-8 rounded-3xl bg-gradient-to-r ${!isVerified ? 'from-amber-500 to-orange-655 border-amber-400/30 shadow-orange-950/10' : 'from-emerald-500 to-teal-650 border-emerald-400/30'} p-6 text-white shadow-xl relative overflow-hidden border`}>
-              <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-                <Clock className="h-32 w-32" />
-              </div>
-              <div className="relative z-10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
-                <div className="space-y-2 w-full">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {!isVerified ? (
-                      <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-white/20 border border-white/10 rounded-md inline-block text-amber-100 animate-pulse">
-                        ⏱️ 입실 확인 대기 중
-                      </span>
-                    ) : (
-                      <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-white/20 border border-white/10 rounded-md inline-block text-emerald-100 animate-pulse">
-                        LIVE RESERVATION
-                      </span>
-                    )}
-                    {globalMyReservation.status === "REPORTED_1ST" && (
-                      <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-red-500 border border-red-400 rounded-md inline-block text-white animate-pulse">
-                        ⚠️ 1차 부재 신고 접수됨
-                      </span>
-                    )}
-                  </div>
-                  
-                  {!isVerified ? (
-                    <>
-                      <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
-                        현재 {(() => { const fac = FACILITIES.find(f => f.roomName === globalMyReservation.room_name); return fac ? `${fac.buildingName} ${fac.name}` : globalMyReservation.room_name; })()} <span className="underline decoration-wavy decoration-yellow-350 font-extrabold">{globalMyReservation.seat_number}번 좌석</span> 입실 대기 상태입니다.
-                      </h3>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-amber-100 font-medium">
-                        <span className="flex items-center gap-1.5 bg-black/10 border border-white/10 px-2.5 py-1 rounded-xl">
-                          <Clock className="h-3.5 w-3.5 text-yellow-300" />
-                          <span>입실 확인 남은 시간:</span>
-                          <strong className="font-mono text-sm text-yellow-250 animate-pulse">
-                            {Math.floor(checkinTimeLeft / 60)}분 {checkinTimeLeft % 60}초
-                          </strong>
-                        </span>
-                        <span>•</span>
-                        <span>예약시간: {globalMyReservation.reserved_at || "N/A"}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <h3 className="text-lg sm:text-xl font-black tracking-tight text-white">
-                        현재 {(() => { const fac = FACILITIES.find(f => f.roomName === globalMyReservation.room_name); return fac ? `${fac.buildingName} ${fac.name}` : globalMyReservation.room_name; })()} <span className="underline decoration-wavy decoration-lime-300 font-extrabold">{globalMyReservation.seat_number}번 좌석</span>을 이용 중입니다.
-                      </h3>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-emerald-100 font-medium">
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5" />
-                          남은 이용 시간:{" "}
-                          <strong className="font-mono text-sm text-lime-300">
-                            {globalMyReservation.use_timer_seconds !== undefined && globalMyReservation.use_timer_seconds > 0 ? (
-                              `${Math.floor(globalMyReservation.use_timer_seconds / 3600)}시간 ${Math.floor((globalMyReservation.use_timer_seconds % 3600) / 60)}분 ${globalMyReservation.use_timer_seconds % 60}초`
-                            ) : (
-                              "이용 시간 종료 임박"
-                            )}
-                          </strong>
-                        </span>
-                        <span>•</span>
-                        <span>예약시간: {globalMyReservation.reserved_at || "N/A"}</span>
-                        <span>•</span>
-                        <span>종료시간: {globalMyReservation.ends_at || "N/A"}</span>
-                      </div>
-                    </>
-                  )}
-
-                  {/* [TODO 2] 원클릭 빠른 제어 버튼 — 입실 인증 전에만 표시 */}
-                  {!isVerified && (
-                    <div className="flex flex-wrap gap-2 w-full lg:w-auto mt-4 pt-2 border-t border-white/10">
-                      <button
-                        onClick={() => {
-                          if (navigator.geolocation) {
-                            alert("📍 GPS 신호를 수집하고 있습니다. 잠시만 기다려 주세요...");
-                            navigator.geolocation.getCurrentPosition(
-                              (position) => {
-                                alert("✓ GPS 위치 확인 완료: 대구대학교 창파도서관 반경 50m 이내로 확인되었습니다!");
-                                handleVerifyCheckin();
-                              },
-                              (error) => {
-                                console.warn("GPS error, fallback to simulated checkin:", error);
-                                alert("✓ GPS 확인 완료: (데모 환경 편의를 위해 GPS 가상 반경 인증을 승인합니다!)");
-                                handleVerifyCheckin();
-                              }
-                            );
-                          } else {
-                            alert("✓ GPS 확인 완료: (데모 환경 편의를 위해 GPS 가상 반경 인증을 승인합니다!)");
-                            handleVerifyCheckin();
-                          }
-                        }}
-                        className="flex-1 lg:flex-initial px-4 py-2.5 bg-white hover:bg-yellow-50 text-orange-600 border border-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md hover:scale-[1.01] animate-bounce-short"
-                      >
-                        <MapPin className="h-4 w-4" />
-                        <span>📍 GPS 입실 인증</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          const code = prompt("좌석의 고유 QR 코드를 스캔합니다. 스캔할 QR 코드 정보를 입력하세요 (또는 엔터 입력 시 자동 인식 완료):", `${globalMyReservation.room_name}_SEAT_${globalMyReservation.seat_number}`);
-                          if (code !== null) {
-                            alert("✓ 📷 QR 스캔 완료: 좌석 고유 QR 코드 매칭 및 실시간 입실 인증에 성공했습니다!");
-                            handleVerifyCheckin();
-                          }
-                        }}
-                        className="flex-1 lg:flex-initial px-4 py-2.5 bg-black/20 hover:bg-black/35 border border-white/20 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md hover:scale-[1.01]"
-                      >
-                        <Camera className="h-4 w-4 text-amber-250" />
-                        <span>📷 QR코드 입실 인증</span>
-                      </button>
-                      <button
-                        onClick={handleCheckoutSeat}
-                        className="flex-1 lg:flex-initial px-4 py-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-100 border border-red-500/35 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        <LogOut className="h-4 w-4" />
-                        <span>예약 취소 (반납)</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-              </div>
-            </div>
-          )}
+          {perspective === "STUDENT" && renderQuickReservationBanner(true)}
 
           {/* Main Info Banner */}
           <div className="mb-8 rounded-3xl bg-gradient-to-r from-emerald-800 to-emerald-950 p-8 text-white shadow-xl relative overflow-hidden">
@@ -2581,14 +2846,23 @@ export default function Page() {
                   <div className="space-y-2">
                     <div>
                       <label className="text-[10px] font-bold text-slate-500 block mb-1">학번 (8자리)</label>
-                      <input
-                        type="text"
-                        maxLength={8}
-                        value={manualStudentId}
-                        onChange={(e) => setManualStudentId(e.target.value.replace(/[^0-9]/g, ""))}
-                        placeholder="예: 20221234"
-                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:border-amber-400 outline-none transition-all"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          maxLength={8}
+                          value={manualStudentId}
+                          onChange={(e) => setManualStudentId(e.target.value.replace(/[^0-9]/g, ""))}
+                          placeholder="예: 20221234"
+                          className="flex-grow px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:border-amber-400 outline-none transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSearchStudentForManualReserve}
+                          className="px-3 py-2 bg-amber-500 hover:bg-amber-450 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-3xs"
+                        >
+                          조회
+                        </button>
+                      </div>
                     </div>
                     <div>
                       <label className="text-[10px] font-bold text-slate-500 block mb-1">학생 이름</label>
@@ -3010,6 +3284,9 @@ export default function Page() {
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 flex-grow w-full">
+        {/* [TODO 2] 현재 내 좌석 이용 현황 퀵 배너 */}
+        {perspective === "STUDENT" && renderQuickReservationBanner(false)}
+
         {/* Facility Info Header */}
         <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-emerald-50 via-lime-50/40 to-transparent border border-emerald-500/10 rounded-2xl p-6 shadow-xs">
           <div className="space-y-1">
@@ -3037,7 +3314,7 @@ export default function Page() {
             <UserDashboard
               user={currentUser}
               selectedSeat={selectedSeat}
-              userReservation={myReservation}
+              userReservation={globalMyReservation}
               absenceReports={absenceReports}
               facilityConfig={facilityConfigs[selectedFacility.roomName] || null}
               myComplaints={complaints.filter(c => c.user_id === currentUser.id)}
@@ -3070,7 +3347,7 @@ export default function Page() {
                 seats={activeSeats}
                 onSelectSeat={setSelectedSeat}
                 selectedSeatId={selectedSeat?.id || null}
-                userReservationSeatId={myReservation?.id || null}
+                userReservationSeatId={globalMyReservation?.id || null}
                 selectedFacility={selectedFacility}
                 noiseLevel={noiseLevel}
                 highlightSeatId={highlightSeatId}

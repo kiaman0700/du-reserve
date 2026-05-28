@@ -22,7 +22,8 @@ import {
   ChevronRight,
   Loader2,
   Trash2,
-  FileText
+  FileText,
+  Plus
 } from "lucide-react";
 import CameraCapture from "./CameraCapture";
 
@@ -127,6 +128,15 @@ export default function UserDashboard({
   const [isUnspecifiedTime, setIsUnspecifiedTime] = useState<boolean>(false);
   const [selectedExtension, setSelectedExtension] = useState<number>(60); // Extension default 1 hour
   const [earlyCheckoutMinutes, setEarlyCheckoutMinutes] = useState<number>(30); // 30 mins later
+  
+  // Automatically select unspecified time if facility allows unlimited hours
+  useEffect(() => {
+    if (facilityConfig && facilityConfig.max_use_hours === null) {
+      setIsUnspecifiedTime(true);
+    } else {
+      setIsUnspecifiedTime(false);
+    }
+  }, [facilityConfig]);
   
   // Complaint modal
   const [showComplaintModal, setShowComplaintModal] = useState<boolean>(false);
@@ -290,107 +300,7 @@ export default function UserDashboard({
         </div>
       )}
 
-      {/* 🚀 [요청 8] 마이 메인 퀵 액션 배너 (좌석 고정 및 빠른 조작) */}
-      {userReservation && (
-        <div className="rounded-3xl bg-gradient-to-r from-emerald-700 via-emerald-800 to-emerald-950 p-6 text-white shadow-xl shadow-emerald-900/10 relative overflow-hidden animate-fade-in">
-          <div className="absolute right-0 top-0 translate-x-[20%] -translate-y-[20%] w-[180px] h-[180px] rounded-full bg-emerald-500/10 blur-xl pointer-events-none" />
-          <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-widest bg-emerald-600/40 border border-emerald-500/30 rounded-md inline-block text-emerald-300">
-                  My Active Seat
-                </span>
-                {isVerified ? (
-                  <span className="px-2 py-0.5 text-[9px] font-extrabold bg-lime-500 border border-lime-400 rounded-md inline-block text-white">
-                    ✓ 실제 입실 인증 완료
-                  </span>
-                ) : (
-                  <span className="px-2 py-0.5 text-[9px] font-extrabold bg-amber-500 border border-amber-400 rounded-md inline-block text-white animate-pulse">
-                    ⚠️ 15분 내 입실 인증 대기 중
-                  </span>
-                )}
-              </div>
-              <h3 className="text-lg font-black tracking-tight text-white flex items-center gap-2 leading-none">
-                <MapPin className="h-5 w-5 text-emerald-300" />
-                <span>{selectedFacility ? `${selectedFacility.buildingName} ${selectedFacility.name}` : userReservation.room_name}</span>
-                <span className="text-amber-300 font-mono font-bold text-xl">{userReservation.seat_number}번석</span>
-              </h3>
-              
-              {!isVerified && (
-                <div className="text-xs text-amber-300 font-bold font-mono">
-                  ⏱️ 입실 확인 남은 시간: {Math.floor(checkinTimeLeft / 60)}분 {checkinTimeLeft % 60}초
-                </div>
-              )}
 
-              <p className="text-xs text-emerald-200 leading-normal flex items-center gap-1.5 font-medium">
-                <Clock className="h-3.5 w-3.5 text-emerald-400" />
-                <span>남은 이용 시간:</span>
-                {userReservation.use_timer_seconds !== undefined ? (
-                  <strong className="font-mono text-sm text-white bg-emerald-900/50 px-2 py-0.5 rounded border border-emerald-700">
-                    {formatSecondsToTime(userReservation.use_timer_seconds)}
-                  </strong>
-                ) : (
-                  <strong className="text-white">마감 시까지 (무제한)</strong>
-                )}
-              </p>
-            </div>
-
-            {/* Quick Actions Buttons — 입실 인증만 노출, 연장/반납은 좌석 상세 패널에서 */}
-            {!isVerified && (
-              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto border-t border-emerald-700/50 pt-4 md:pt-0 md:border-0">
-                <button
-                  onClick={onVerifyCheckin}
-                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-450 text-white border border-amber-400 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01] animate-bounce-short shadow-md shadow-amber-950/20"
-                >
-                  <MapPin className="h-4 w-4" />
-                  <span>📍 GPS 입실 인증</span>
-                </button>
-                <button
-                  onClick={() => handleOpenReportCamera("CHECKIN", userReservation.id)}
-                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-550 text-white border border-teal-500 font-bold text-xs transition-all cursor-pointer hover:scale-[1.01] animate-bounce-short shadow-md shadow-teal-950/20"
-                >
-                  <Camera className="h-4 w-4" />
-                  <span>📷 QR코드 입실 인증</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ⏰ 10분 전 퇴실 예고 — 자동 발동 (설정 불필요) */}
-      {userReservation && userReservation.use_timer_seconds !== undefined && userReservation.use_timer_seconds > 0 && userReservation.use_timer_seconds <= 600 && (
-        <div className="rounded-2xl bg-amber-50 border-2 border-amber-400 p-5 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-bounce-short">
-          <div className="flex items-center space-x-3.5">
-            <div className="p-2.5 bg-amber-100 rounded-xl text-amber-600 border border-amber-250">
-              <Clock className="h-6 w-6 animate-pulse" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-sm font-extrabold text-amber-900">🔔 10분 전 퇴실 예고 (자동 발동)</h4>
-              <p className="text-xs text-slate-655 font-semibold">
-                이용 종료까지 10분 미만 남았습니다. 아래에서 연장하거나 즉시 퇴실하세요. 시간이 지나면 좌석이 자동 개방됩니다.
-              </p>
-              <div className="text-xs text-amber-700 font-bold font-mono">
-                남은 시간: {formatSecondsToTime(userReservation.use_timer_seconds)}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2.5 w-full md:w-auto">
-            <button
-              onClick={() => onExtendSeat(userReservation.id, 60)}
-              className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all"
-            >
-              1시간 연장
-            </button>
-            <button
-              onClick={onCheckout}
-              className="flex-1 md:flex-none bg-red-655 hover:bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all"
-            >
-              즉시 퇴실
-            </button>
-          </div>
-        </div>
-      )}
 
 
 
@@ -401,13 +311,22 @@ export default function UserDashboard({
             <User className="h-6 w-6" />
           </div>
           <div>
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-extrabold text-slate-800">{user.name}</h2>
               <span className="rounded bg-emerald-50 border border-emerald-150 px-2 py-0.5 text-xs text-emerald-700 font-mono font-bold">
                 {user.role === "ADMIN" ? "운영 사서관" : "학부생"}
               </span>
+              {userReservation && (
+                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-150 rounded-full px-2.5 py-0.5 text-[10px] font-black animate-pulse shadow-3xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-ping" />
+                  <span>● {selectedFacility ? `${selectedFacility.roomName}` : userReservation.room_name} {userReservation.seat_number}번석 이용 중</span>
+                </span>
+              )}
             </div>
-            <p className="text-xs text-slate-500 font-semibold mt-0.5">학번/ID: {user.university_id}</p>
+            <p className="text-xs text-slate-500 font-semibold mt-0.5">
+              학번/ID: {user.university_id}
+              {userReservation ? ` · ${selectedFacility ? `${selectedFacility.buildingName}` : ""} 이용 중` : " · 이용 중인 좌석 없음"}
+            </p>
           </div>
         </div>
 
@@ -583,50 +502,43 @@ export default function UserDashboard({
                   {selectedSeat.status === "AVAILABLE" && (
                     <div className="space-y-3">
                       {!userReservation && (
-                        <div className="space-y-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                          {/* [요청 4] 이용 시간 설정 및 관리자 정책별 제어 */}
-                          {facilityConfig && facilityConfig.max_use_hours === null ? (
-                            <div className="flex items-center justify-between border-b border-slate-200 pb-2 mb-2 font-bold">
-                              <span className="text-[10px] uppercase text-slate-500 tracking-wider">이용 시간 미지정 예약</span>
-                              <button
-                                type="button"
-                                onClick={() => setIsUnspecifiedTime(!isUnspecifiedTime)}
-                                className="cursor-pointer text-emerald-650 hover:text-emerald-700 focus:outline-none"
-                              >
-                                {isUnspecifiedTime ? <ToggleRight className="h-7 w-7 text-emerald-600" /> : <ToggleLeft className="h-7 w-7 text-slate-400" />}
-                              </button>
-                            </div>
-                          ) : null}
-
-                          {!isUnspecifiedTime && (
-                            <>
-                              <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block">
-                                ⏱️ 좌석 이용 설정 시간
-                              </label>
-                              <select
-                                value={selectedDuration}
-                                onChange={(e) => setSelectedDuration(Number(e.target.value))}
-                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer"
-                              >
-                                {Array.from(
-                                  { length: facilityConfig && facilityConfig.max_use_hours ? facilityConfig.max_use_hours * 6 : 18 }, 
-                                  (_, i) => (i + 1) * 10
-                                ).map((min) => {
-                                  const hr = Math.floor(min / 60);
-                                  const mn = min % 60;
-                                  const label = hr > 0 ? `${hr}시간 ${mn > 0 ? `${mn}분` : ""}` : `${mn}분`;
-                                  return (
-                                    <option key={min} value={min}>
-                                      {label} 이용
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                            </>
-                          )}
+                        <div className="space-y-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                          <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider block mb-1">
+                            ⏱️ 좌석 이용 설정 시간
+                          </label>
+                          <select
+                            value={isUnspecifiedTime ? "UNSPECIFIED" : selectedDuration}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "UNSPECIFIED") {
+                                setIsUnspecifiedTime(true);
+                              } else {
+                                setIsUnspecifiedTime(false);
+                                setSelectedDuration(Number(val));
+                              }
+                            }}
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-700 focus:outline-none focus:border-emerald-500 cursor-pointer"
+                          >
+                            {facilityConfig && facilityConfig.max_use_hours === null && (
+                              <option value="UNSPECIFIED">시간 제한 없음 (당일 마감 시까지)</option>
+                            )}
+                            {Array.from(
+                              { length: facilityConfig && facilityConfig.max_use_hours ? facilityConfig.max_use_hours * 6 : 18 }, 
+                              (_, i) => (i + 1) * 10
+                            ).map((min) => {
+                              const hr = Math.floor(min / 60);
+                              const mn = min % 60;
+                              const label = hr > 0 ? `${hr}시간 ${mn > 0 ? `${mn}분` : ""}` : `${mn}분`;
+                              return (
+                                <option key={min} value={min}>
+                                  {label} 이용
+                                </option>
+                              );
+                            })}
+                          </select>
                           <p className="text-[9px] text-slate-400 leading-normal mt-1 font-semibold">
                             {isUnspecifiedTime 
-                              ? "* 미지정 선택 시 당일 운영 마감 시간까지 시간 제한 없이 자율 이용할 수 있습니다."
+                              ? "* 시간 제한 없음 선택 시 당일 운영 마감 시간까지 시간 제한 없이 자율 이용할 수 있습니다."
                               : "* 설정한 이용 시간(타이머)이 흐르며, 남은 시간이 10분 미만일 때 다시 연장할 수 있습니다."}
                           </p>
                         </div>

@@ -21,6 +21,7 @@ app.get('/', (req: Request, res: Response) => {
 // 스마트 열람실 API 라우터 맵핑
 app.get('/api/seats', seatController.getSeats);
 app.post('/api/reservations', seatController.reserveSeat);
+app.post('/api/reservations/check-in', seatController.checkInSeat);
 app.post('/api/reservations/checkout', seatController.returnSeat);
 app.post('/api/absence-reports/1st', seatController.submitAbsenceReport1st);
 app.post('/api/absence-reports/return', seatController.confirmUserReturned);
