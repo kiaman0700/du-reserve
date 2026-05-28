@@ -1434,14 +1434,9 @@ export default function Page() {
       alert(`✓ 학생 정보 검색 성공: ${data.name} 학생이 조회되었습니다.`);
     } catch (err) {
       console.warn("학생 검색 실패 (데이터 없음):", err);
-      if (manualStudentId === "20222043") {
-        setManualStudentName("강민성");
-        alert("✓ 학생 정보 성공: 강민성 학생이 조회되었습니다.");
-      } else {
-        const generatedName = `학생_${manualStudentId}`;
-        setManualStudentName(generatedName);
-        alert(`✓ 학생 정보 성공: ${generatedName} 학생이 조회되었습니다.`);
-      }
+      const resolvedName = getStudentName(manualStudentId);
+      setManualStudentName(resolvedName);
+      alert(`✓ 학생 정보 성공: ${resolvedName} 학생이 조회되었습니다.`);
     }
   };
 
@@ -1516,6 +1511,8 @@ export default function Page() {
         ends_at: ends_at_str_value
       }).eq('id', manualSelectedSeatId);
 
+      setManualSelectedSeatId(null);
+      setSelectedSeat(null);
       alert(`✅ 수동 예약 완료!\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${isUnlimited ? '무제한 (폐관까지)' : effectiveDuration + '분'}`);
     } catch (err: any) {
       console.warn("Admin manual reserve - using mock mode:", err);
@@ -1555,6 +1552,8 @@ export default function Page() {
         ends_at: ends_at_str_value
       } : s));
 
+      setManualSelectedSeatId(null);
+      setSelectedSeat(null);
       alert(`✅ 수동 예약 완료!\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${isUnlimited ? '무제한 (폐관까지)' : effectiveDuration + '분'}`);
     } finally {
       setManualLoading(false);
@@ -2400,7 +2399,7 @@ export default function Page() {
       return {
         id: `mock-uuid-${studentId}`,
         university_id: studentId,
-        name: studentId === "20222043" ? "강민성" : "테스트학생",
+        name: getStudentName(studentId),
         role: "USER"
       };
     }
@@ -3875,10 +3874,11 @@ export default function Page() {
                         alert("대리 예약할 학번과 성명을 모두 입력해 주세요.");
                         return;
                       }
-                      await handleAdminReserve(selectedSeat.id, proxyStudentId.trim(), proxyStudentName.trim(), proxyReserveDuration);
+                      const targetSeatId = selectedSeat.id;
+                      setSelectedSeat(null);
+                      await handleAdminReserve(targetSeatId, proxyStudentId.trim(), proxyStudentName.trim(), proxyReserveDuration);
                       setProxyStudentId("");
                       setProxyStudentName("");
-                      setSelectedSeat(null);
                       alert("✓ [대리 예약 완료] 학생 대신 즉석 예약 신청이 승인 및 완료되었습니다.");
                     }}
                     className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
