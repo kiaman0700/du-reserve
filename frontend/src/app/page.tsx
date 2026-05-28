@@ -197,9 +197,22 @@ const generateMockDbSeats = () => {
   return seatsList;
 };
 
+const withTimeout = <T,>(promise: Promise<T>, timeoutMs: number = 3500, errorMsg: string = "Connection timeout"): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), timeoutMs))
+  ]);
+};
+
 export default function Page() {
   // Database Connection Mode State (Forced to False for Real Supabase Auth Integration)
-  const [isMockMode, setIsMockMode] = useState<boolean>(false);
+  const [isMockMode, setIsMockModeState] = useState<boolean>(false);
+  const isMockModeRef = React.useRef<boolean>(false);
+  const setIsMockMode = (val: boolean) => {
+    isMockModeRef.current = val;
+    setIsMockModeState(val);
+  };
+
 
   // Authentication & Session States
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -210,6 +223,7 @@ export default function Page() {
   const [studentPasswordInput, setStudentPasswordInput] = useState<string>(""); // [TODO 1] 비밀번호 상태 추가
   const [studentNameInput, setStudentNameInput] = useState<string>("");
   const [adminCodeInput, setAdminCodeInput] = useState<string>("");
+  const [loginLoading, setLoginLoading] = useState<boolean>(false);
 
   // [TODO 3] RBAC 우회 차단 모달 상태
   const [showUnauthorizedModal, setShowUnauthorizedModal] = useState<boolean>(false);
@@ -546,7 +560,7 @@ export default function Page() {
   // Base configurations and Auth listener
   useEffect(() => {
     const initSession = async () => {
-      if (isMockMode) return; // 로컬 데모 모드에서는 Supabase Auth 세션 로드를 차단하여 오프라인 동작 보장
+      if (isMockModeRef.current) return;
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session && session.user) {
@@ -581,7 +595,6 @@ export default function Page() {
             });
             setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
           } else {
-            // FALLBACK: Use session user metadata to avoid silent failure when profile table doesn't have the record yet!
             const meta = session.user.user_metadata || {};
             const defaultRole = meta.role === 'ADMIN' ? 'ADMIN' : 'USER';
             setCurrentUser({
@@ -600,75 +613,64 @@ export default function Page() {
     };
     initSession();
 
-    let subscription: any = null;
-    try {
-      const authListener = supabase.auth.onAuthStateChange(async (_event, session) => {
-        if (isMockMode) return; // 로컬 데모 모드에서는 Supabase Auth 세션 변경을 전면 무시하여 로그아웃 리셋 버그 방지
-        if (session && session.user) {
-          setIsLoggedIn(true);
-          try {
-            const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-            if (profile) {
-              if (profile.penalty_ends_at && new Date(profile.penalty_ends_at) > new Date()) {
-                setLoginError(`현재 패널티 누적으로 인해 이용이 제한되었습니다. (제한 만료: ${new Date(profile.penalty_ends_at).toLocaleDateString()}, 사유: ${profile.penalty_reason || '미상'})`);
-                supabase.auth.signOut().catch(() => {});
-                setIsLoggedIn(false);
-                setCurrentUser(null);
-                return;
-              }
-              if (profile.university_id === "22221992" && profile.name !== "이준엽 (컴퓨학전공)") {
-                await supabase.from('profiles').update({ name: '이준엽 (컴퓨터공학전공)' }).eq('id', session.user.id);
-                profile.name = '이준엽 (컴퓨터공학전공)';
-              }
-              if (profile.university_id === "ADM-9942" && (profile.role !== "ADMIN" || profile.managed_college_id !== "library")) {
-                await supabase.from('profiles').update({ role: 'ADMIN', managed_college_id: 'library' }).eq('id', session.user.id);
-                profile.role = 'ADMIN';
-                profile.managed_college_id = 'library';
-              }
-              setCurrentUser({
-                id: profile.id,
-                university_id: profile.university_id,
-                name: profile.name,
-                role: profile.role as "USER" | "ADMIN",
-                managed_college_id: profile.managed_college_id
-              });
-              setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
-            } else {
-              // FALLBACK: Use session user metadata to avoid silent failure when profile table doesn't have the record yet!
-              const meta = session.user.user_metadata || {};
-              const defaultRole = meta.role === 'ADMIN' ? 'ADMIN' : 'USER';
-              setCurrentUser({
-                id: session.user.id,
-                university_id: meta.university_id || session.user.email?.split('@')[0] || 'unknown',
-                name: meta.name || '사용자',
-                role: defaultRole,
-                managed_college_id: meta.managed_college_id || null
-              });
-              setPerspective(defaultRole === 'ADMIN' ? 'ADMIN' : 'STUDENT');
+    const authListener = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (isMockModeRef.current) return;
+      if (session && session.user) {
+        setIsLoggedIn(true);
+        try {
+          const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+          if (profile) {
+            if (profile.penalty_ends_at && new Date(profile.penalty_ends_at) > new Date()) {
+              setLoginError(`현재 패널티 누적으로 인해 이용이 제한되었습니다. (제한 만료: ${new Date(profile.penalty_ends_at).toLocaleDateString()}, 사유: ${profile.penalty_reason || '미상'})`);
+              supabase.auth.signOut().catch(() => {});
+              setIsLoggedIn(false);
+              setCurrentUser(null);
+              return;
             }
-          } catch (profileErr) {
-            console.warn("Failed to fetch auth change profile", profileErr);
+            if (profile.university_id === "22221992" && profile.name !== "이준엽 (컴퓨학전공)") {
+              await supabase.from('profiles').update({ name: '이준엽 (컴퓨터공학전공)' }).eq('id', session.user.id);
+              profile.name = '이준엽 (컴퓨터공학전공)';
+            }
+            if (profile.university_id === "ADM-9942" && (profile.role !== "ADMIN" || profile.managed_college_id !== "library")) {
+              await supabase.from('profiles').update({ role: 'ADMIN', managed_college_id: 'library' }).eq('id', session.user.id);
+              profile.role = 'ADMIN';
+              profile.managed_college_id = 'library';
+            }
+            setCurrentUser({
+              id: profile.id,
+              university_id: profile.university_id,
+              name: profile.name,
+              role: profile.role as "USER" | "ADMIN",
+              managed_college_id: profile.managed_college_id
+            });
+            setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
+          } else {
+            const meta = session.user.user_metadata || {};
+            const defaultRole = meta.role === 'ADMIN' ? 'ADMIN' : 'USER';
+            const fallbackProfile = {
+              id: session.user.id,
+              university_id: meta.university_id || session.user.email?.split('@')[0] || 'unknown',
+              name: meta.name || '사용자',
+              role: defaultRole,
+              managed_college_id: meta.managed_college_id || null
+            };
+            await supabase.from('profiles').upsert(fallbackProfile);
+            setCurrentUser(fallbackProfile as any);
+            setPerspective(defaultRole === 'ADMIN' ? 'ADMIN' : 'STUDENT');
           }
-        } else {
-          setIsLoggedIn(false);
-          setCurrentUser(null);
+        } catch (profileErr) {
+          console.warn("Failed to fetch auth change profile", profileErr);
         }
-      });
-      subscription = authListener.data?.subscription;
-    } catch (authErr) {
-      console.warn("Failed to set auth state listener", authErr);
-    }
+      } else {
+        setIsLoggedIn(false);
+        setCurrentUser(null);
+      }
+    });
 
     return () => {
-      if (subscription) {
-        try {
-          subscription.unsubscribe();
-        } catch (unsubErr) {
-          console.warn("Failed to unsubscribe", unsubErr);
-        }
-      }
+      authListener.data.subscription.unsubscribe();
     };
-  }, []);
+  }, [isMockMode]);
 
   // Global Realtime WebSockets configurations
   useEffect(() => {
@@ -684,7 +686,6 @@ export default function Page() {
             fetchAllDbSeats();
             if (selectedFacility) fetchSeatsAndReports();
 
-            // [요청 5] 빈자리 실시간 반납 알림
             if (payload.eventType === 'UPDATE') {
               const newSeat = payload.new;
               const oldSeat = payload.old;
@@ -899,7 +900,6 @@ export default function Page() {
         return next;
       });
 
-      // [TODO 8] Tick Checkin countdown
       setCheckinTimeLeft((prev) => {
         if (isVerified) return 900;
         return Math.max(0, prev - decrement);
@@ -910,7 +910,6 @@ export default function Page() {
     return () => clearInterval(interval);
   }, [timerSpeedUp, isVerified]);
 
-  // [TODO 8] 입실 인증 만료 시 자동 예약 폭파
   useEffect(() => {
     if (globalMyReservation && !isVerified && checkinTimeLeft === 0) {
       alert("⏱️ 15분 입실 확인 유예 시간이 만료되어 예약이 자동 취소(폭파) 및 좌석이 개방되었습니다.");
@@ -918,7 +917,6 @@ export default function Page() {
     }
   }, [checkinTimeLeft, isVerified, globalMyReservation]);
 
-  // Synchronize isVerified state with globalMyReservation's database check-in status
   useEffect(() => {
     if (globalMyReservation) {
       if (globalMyReservation.check_in_at) {
@@ -936,17 +934,23 @@ export default function Page() {
     setIsVerified(true);
     try {
       if (!isMockMode && globalMyReservation && globalMyReservation.current_reservation_id) {
-        await supabase.from('reservations').update({
-          check_in_at: new Date().toISOString()
+        const { error } = await supabase.from('reservations').update({
+          check_in_at: new Date().toISOString(),
+          is_checked_in: true
         }).eq('id', globalMyReservation.current_reservation_id);
+
+        if (error) {
+          console.error("Supabase check-in error:", error);
+          alert(`⚠️ 데이터베이스 입실 등록 실패: ${error.message}\n(백엔드 RLS 권한이 부족하여 업데이트가 실패하였습니다. SQL 에디터에 UPDATE 정책을 적용해 주세요. 로컬 가상 입실로 임시 전환합니다.)`);
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Failed to save checkin to Supabase:", err);
+      alert(`⚠️ 입실 인증 연동 중 예외가 발생했습니다: ${err.message || err}`);
     }
     alert("✓ 입실 인증이 성공적으로 완료되었습니다. 즐거운 학습 시간 되세요!");
   };
 
-  // Sync selected seat details when facility updates
   useEffect(() => {
     if (selectedSeat && selectedFacility) {
       const currentList = facilitySeats[selectedFacility.id] || [];
@@ -955,7 +959,6 @@ export default function Page() {
     }
   }, [facilitySeats, selectedFacility]);
 
-  // [요청] 예약한 시설 페이지 진입 시 내 좌석 자동 선택
   useEffect(() => {
     if (!selectedFacility || !currentUser) return;
     const seats = facilitySeats[selectedFacility.id] || [];
@@ -965,7 +968,6 @@ export default function Page() {
     }
   }, [selectedFacility, facilitySeats, currentUser]);
 
-  // 수동 예약 패널: 시설 변경 시 해당 시설의 좌석 목록 로드
   const prevManualFacilityRef = React.useRef<string | null>(null);
   useEffect(() => {
     if (!manualFacility) {
@@ -976,12 +978,10 @@ export default function Page() {
     }
     const facilityChanged = prevManualFacilityRef.current !== manualFacility.id;
     
-    // facilitySeats에 이미 로드된 경우 재사용, 없으면 mock 생성
     const existing = facilitySeats[manualFacility.id];
     if (existing && existing.length > 0) {
       setManualSeats(existing);
     } else {
-      // Library rooms: try to load from DB directly
       if (manualFacility.collegeId === 'library' && !isMockMode) {
         (async () => {
           try {
@@ -998,12 +998,12 @@ export default function Page() {
                 status: seat.status as SeatStatus
               }));
               setManualSeats(mapped);
+              setFacilitySeats(prev => ({ ...prev, [manualFacility.id]: mapped }));
               return;
             }
           } catch (err) {
             console.warn('[ManualReserve] Failed to load library seats from DB:', err);
           }
-          // Fallback mock
           const mockSeats: Seat[] = Array.from({ length: manualFacility.capacity }, (_, i) => ({
             id: 90000 + (FACILITIES.indexOf(manualFacility) * 100) + i + 1,
             seat_number: i + 1,
@@ -1011,9 +1011,9 @@ export default function Page() {
             status: "AVAILABLE" as const
           }));
           setManualSeats(mockSeats);
+          setFacilitySeats(prev => ({ ...prev, [manualFacility.id]: mockSeats }));
         })();
       } else {
-        // Mock 생성
         const mockSeats: Seat[] = Array.from({ length: manualFacility.capacity }, (_, i) => ({
           id: 90000 + (FACILITIES.indexOf(manualFacility) * 100) + i + 1,
           seat_number: i + 1,
@@ -1021,16 +1021,15 @@ export default function Page() {
           status: "AVAILABLE" as const
         }));
         setManualSeats(mockSeats);
+        setFacilitySeats(prev => ({ ...prev, [manualFacility.id]: mockSeats }));
       }
     }
-    // Only reset seat selection when the facility actually changes
     if (facilityChanged) {
       setManualSelectedSeatId(null);
       prevManualFacilityRef.current = manualFacility.id;
     }
   }, [manualFacility, facilitySeats]);
 
-  // Check and trigger empty seat subscription push
   const checkAndTriggerSeatNotification = async (roomName: string, type: 'AVAILABLE' | 'EARLY_CHECKOUT', endsAt?: string) => {
     if (!currentUser) return;
     try {
@@ -1045,10 +1044,8 @@ export default function Page() {
         if (type === 'AVAILABLE') {
           alert(`📢 [빈자리 알림]\n반가운 소식! 신청하신 ${roomName}에 빈자리가 생겼습니다. 지금 바로 예약하세요!`);
         } else {
-          // Calculate remaining minutes from endsAt time
           alert(`📢 [빈자리 알림]\n신청하신 ${roomName}에 약 ${endsAt ? endsAt.slice(0, 5) : ""} 경에 빈자리가 발생할 예정입니다! 미리 준비해 보세요.`);
         }
-        // Update subscription
         await supabase
           .from('notifications')
           .update({ status: 'SENT' })
@@ -1061,14 +1058,12 @@ export default function Page() {
     }
   };
 
-  // [요청 1] 명시적인 검색 처리 및 카테고리 스마트 동기화
   const handleSearchSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setSearchKeyword(tempKeyword);
     setSearchBuilding(tempBuilding);
     setSearchCapacity(tempCapacity);
 
-    // 건물별 필터에 따라 카테고리 탭 자동 전환
     if (tempBuilding === "중앙도서관") {
       setFacilityFilter("library");
     } else if (tempBuilding === "IT융합관") {
@@ -1088,168 +1083,173 @@ export default function Page() {
     }
   };
 
-  // Sign in / Sign up wrapper
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    setLoginLoading(true);
 
-    if (loginTab === "STUDENT") {
-      if (!studentIdInput.trim() || !studentPasswordInput.trim()) {
-        setLoginError("학번과 포털 비밀번호를 모두 입력해 주세요.");
-        return;
-      }
-      if (studentIdInput.trim().length !== 8) {
-        setLoginError("학번은 8자리 숫자로 입력해야 합니다.");
-        return;
-      }
-
-      const email = `${studentIdInput.trim()}@daegu.ac.kr`;
-      const password = studentPasswordInput.trim(); // [TODO 1] Use user entered portal password
-
-      try {
-        if (isMockMode) throw new Error("Mock mode enabled");
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) {
-          // Sign up if not exist
-          const { error: signUpErr } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: {
-                university_id: studentIdInput.trim(),
-                name: studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : `강민성 (컴퓨터공학과)`,
-                role: 'USER'
-              }
-            }
-          });
-          if (signUpErr) {
-            throw signUpErr;
-          }
-          const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
-          if (signIn2Err) throw signIn2Err;
+    try {
+      if (loginTab === "STUDENT") {
+        if (!studentIdInput.trim() || !studentPasswordInput.trim()) {
+          setLoginError("학번과 포털 비밀번호를 모두 입력해 주세요.");
+          setLoginLoading(false);
+          return;
+        }
+        if (studentIdInput.trim().length !== 8) {
+          setLoginError("학번은 8자리 숫자로 입력해야 합니다.");
+          setLoginLoading(false);
+          return;
         }
 
-        const { data: { session } } = await supabase.auth.getSession();
-        const currentSessionUser = session?.user;
+        const email = `${studentIdInput.trim()}@daegu.ac.kr`;
+        const password = studentPasswordInput.trim();
 
-        if (currentSessionUser) {
-          const studentName = studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : "강민성 (컴퓨터공학과)";
-          await supabase.from('profiles').upsert({
-            id: currentSessionUser.id,
-            university_id: studentIdInput.trim(),
-            name: studentName,
-            role: 'USER'
-          });
+        try {
+          if (isMockMode) throw new Error("Mock mode enabled");
+          const { error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
+          if (error) {
+            const { error: signUpErr } = await withTimeout(supabase.auth.signUp({
+              email,
+              password,
+              options: {
+                data: {
+                  university_id: studentIdInput.trim(),
+                  name: studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : `강민성 (컴퓨터공학과)`,
+                  role: 'USER'
+                }
+              }
+            }), 3500);
+            if (signUpErr) {
+              throw signUpErr;
+            }
+            const { error: signIn2Err } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
+            if (signIn2Err) throw signIn2Err;
+          }
 
+          const { data: { session } } = await withTimeout(supabase.auth.getSession(), 3500);
+          const currentSessionUser = session?.user;
+
+          if (currentSessionUser) {
+            const studentName = studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : "강민성 (컴퓨터공학과)";
+            await supabase.from('profiles').upsert({
+              id: currentSessionUser.id,
+              university_id: studentIdInput.trim(),
+              name: studentName,
+              role: 'USER'
+            }).select();
+
+            setCurrentUser({
+              id: currentSessionUser.id,
+              university_id: studentIdInput.trim(),
+              name: studentName,
+              role: "USER"
+            });
+            setPerspective("STUDENT");
+            setIsLoggedIn(true);
+          } else {
+            throw new Error("No session user found after successful sign in");
+          }
+
+          setIsMockMode(false);
+        } catch (err: any) {
+          console.warn("Supabase auth login failed, using local mock fallback:", err);
+          setIsMockMode(true);
+          setIsLoggedIn(true);
           setCurrentUser({
-            id: currentSessionUser.id,
+            id: getMockUuid(studentIdInput.trim(), "USER"),
             university_id: studentIdInput.trim(),
-            name: studentName,
+            name: studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : `강민성 (컴퓨터공학과)`,
             role: "USER"
           });
           setPerspective("STUDENT");
-          setIsLoggedIn(true);
-        } else {
-          throw new Error("No session user found after successful sign in");
+        }
+      } else {
+        if (!adminCodeInput.trim()) {
+          setLoginError("관리자 코드를 입력해 주세요.");
+          setLoginLoading(false);
+          return;
         }
 
-        setIsMockMode(false);
-      } catch (err: any) {
-        console.warn("Supabase auth login failed, using local mock fallback:", err);
-        setIsMockMode(true);
-        // Fallback login
-        setIsLoggedIn(true);
-        setCurrentUser({
-          id: getMockUuid(studentIdInput.trim(), "USER"),
-          university_id: studentIdInput.trim(),
-          name: studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : `강민성 (컴퓨터공학과)`,
-          role: "USER"
-        });
-        setPerspective("STUDENT");
-      }
-    } else {
-      if (!adminCodeInput.trim()) {
-        setLoginError("관리자 코드를 입력해 주세요.");
-        return;
-      }
+        const email = `${adminCodeInput.trim()}@daegu.ac.kr`;
+        const password = `admin_daegu_2026!`;
 
-      const email = `${adminCodeInput.trim()}@daegu.ac.kr`;
-      const password = `admin_daegu_2026!`;
-
-      try {
-        if (isMockMode) throw new Error("Mock mode enabled");
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) {
-          const { error: signUpErr } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: {
-                university_id: adminCodeInput.trim(),
-                name: "이영희 사서관",
-                role: 'ADMIN',
-                managed_college_id: 'library'
+        try {
+          if (isMockMode) throw new Error("Mock mode enabled");
+          const { error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
+          if (error) {
+            const { error: signUpErr } = await withTimeout(supabase.auth.signUp({
+              email,
+              password,
+              options: {
+                data: {
+                  university_id: adminCodeInput.trim(),
+                  name: "이영희 사서관",
+                  role: 'ADMIN',
+                  managed_college_id: 'library'
+                }
               }
-            }
-          });
-          if (signUpErr) throw signUpErr;
-          const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
-          if (signIn2Err) throw signIn2Err;
-        }
+            }), 3500);
+            if (signUpErr) throw signUpErr;
+            const { error: signIn2Err } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
+            if (signIn2Err) throw signIn2Err;
+          }
 
-        const { data: { session } } = await supabase.auth.getSession();
-        const currentSessionUser = session?.user;
+          const { data: { session } } = await withTimeout(supabase.auth.getSession(), 3500);
+          const currentSessionUser = session?.user;
 
-        if (currentSessionUser) {
-          await supabase.from('profiles').upsert({
-            id: currentSessionUser.id,
-            university_id: adminCodeInput.trim(),
-            name: "이영희 사서관",
-            role: 'ADMIN',
-            managed_college_id: 'library'
-          });
+          if (currentSessionUser) {
+            await supabase.from('profiles').upsert({
+              id: currentSessionUser.id,
+              university_id: adminCodeInput.trim(),
+              name: "이영희 사서관",
+              role: 'ADMIN',
+              managed_college_id: 'library'
+            }).select();
 
+            setCurrentUser({
+              id: currentSessionUser.id,
+              university_id: adminCodeInput.trim(),
+              name: "이영희 사서관",
+              role: "ADMIN",
+              managed_college_id: "library"
+            });
+            setPerspective("ADMIN");
+            setIsLoggedIn(true);
+          } else {
+            throw new Error("No session user found after successful sign in");
+          }
+
+          setIsMockMode(false);
+        } catch (err: any) {
+          console.warn("Supabase auth admin login failed, using local mock fallback:", err);
+          setIsMockMode(true);
+          setIsLoggedIn(true);
           setCurrentUser({
-            id: currentSessionUser.id,
+            id: getMockUuid(adminCodeInput.trim(), "ADMIN"),
             university_id: adminCodeInput.trim(),
             name: "이영희 사서관",
             role: "ADMIN",
             managed_college_id: "library"
           });
           setPerspective("ADMIN");
-          setIsLoggedIn(true);
-        } else {
-          throw new Error("No session user found after successful sign in");
         }
-
-        setIsMockMode(false);
-      } catch (err: any) {
-        console.warn("Supabase auth admin login failed, using local mock fallback:", err);
-        setIsMockMode(true);
-        setIsLoggedIn(true);
-        setCurrentUser({
-          id: getMockUuid(adminCodeInput.trim(), "ADMIN"),
-          university_id: adminCodeInput.trim(),
-          name: "이영희 사서관",
-          role: "ADMIN",
-          managed_college_id: "library"
-        });
-        setPerspective("ADMIN");
       }
+    } finally {
+      setLoginLoading(false);
     }
   };
 
-  // Direct login helpers for easy testing
   const loginAsDemoStudent = async () => {
     setStudentIdInput("20222043");
     setStudentPasswordInput("20222043__daegu!");
     setStudentNameInput("강민성");
+    setLoginLoading(true);
     const email = "20222043@daegu.ac.kr";
     const password = "20222043__daegu!";
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
       if (error) {
-        const { error: signUpErr } = await supabase.auth.signUp({
+        const { error: signUpErr } = await withTimeout(supabase.auth.signUp({
           email,
           password,
           options: {
@@ -1259,25 +1259,23 @@ export default function Page() {
               role: 'USER'
             }
           }
-        });
+        }), 3500);
         if (signUpErr) throw signUpErr;
-        const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
+        const { error: signIn2Err } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
         if (signIn2Err) throw signIn2Err;
       }
       
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await withTimeout(supabase.auth.getSession(), 3500);
       const currentSessionUser = session?.user;
-
+ 
       if (currentSessionUser) {
-        // Proactively upsert profiles just in case
         await supabase.from('profiles').upsert({
           id: currentSessionUser.id,
           university_id: "20222043",
           name: "강민성 (컴퓨터공학과)",
           role: 'USER'
-        });
-
-        // Set state directly to guarantee instant transition
+        }).select();
+ 
         setCurrentUser({
           id: currentSessionUser.id,
           university_id: "20222043",
@@ -1293,27 +1291,29 @@ export default function Page() {
     } catch (err) {
       console.warn("Supabase auth failed, logging in with demo mock session:", err);
       setIsMockMode(true);
-      // Fallback login
       setIsLoggedIn(true);
       setCurrentUser({
-        id: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d", // 실제 DB와 일치하는 UUID로 매핑하여 타입 오류 예방
+        id: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
         university_id: "20222043",
         name: "강민성 (컴퓨터공학과)",
         role: "USER"
       });
       setPerspective("STUDENT");
+    } finally {
+      setLoginLoading(false);
     }
   };
-
+ 
   const loginAsDemoAdmin = async () => {
     setAdminCodeInput("ADM-9942");
+    setLoginLoading(true);
     const email = "ADM-9942@daegu.ac.kr";
     const password = "admin_daegu_2026!";
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
       let currentSessionUser = data?.user;
       if (error) {
-        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+        const { data: signUpData, error: signUpErr } = await withTimeout(supabase.auth.signUp({
           email,
           password,
           options: {
@@ -1324,24 +1324,22 @@ export default function Page() {
               managed_college_id: 'library'
             }
           }
-        });
+        }), 3500);
         if (signUpErr) throw signUpErr;
-        const { data: signIn2Data, error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: signIn2Data, error: signIn2Err } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
         if (signIn2Err) throw signIn2Err;
         currentSessionUser = signIn2Data?.user;
       }
-
+ 
       if (currentSessionUser) {
-        // Proactively force ADM-9942 database profile role to ADMIN to ensure RLS bypass succeeds
         await supabase.from('profiles').upsert({
           id: currentSessionUser.id,
           university_id: "ADM-9942",
           name: "이영희 사서관",
           role: 'ADMIN',
           managed_college_id: 'library'
-        });
-
-        // Set state directly to guarantee instant transition
+        }).select();
+ 
         setCurrentUser({
           id: currentSessionUser.id,
           university_id: "ADM-9942",
@@ -1358,25 +1356,21 @@ export default function Page() {
     } catch (err) {
       console.warn("Supabase auth failed, logging in with demo mock session:", err);
       setIsMockMode(true);
-      // Fallback login
       setIsLoggedIn(true);
       setCurrentUser({
-        id: "f9e8d7c6-b5a4-3f2e-1d0c-9b8a7f6e5d4c", // 실제 DB와 일치하는 UUID로 매핑하여 타입 오류 예방
+        id: "f9e8d7c6-b5a4-3f2e-1d0c-9b8a7f6e5d4c",
         university_id: "ADM-9942",
         name: "이영희 사서관",
         role: "ADMIN",
         managed_college_id: "library"
       });
       setPerspective("ADMIN");
+    } finally {
+      setLoginLoading(false);
     }
   };
 
   const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.warn("Supabase signOut error, forcing local logout:", err);
-    }
     setIsMockMode(false);
     setIsLoggedIn(false);
     setCurrentUser(null);
@@ -1387,6 +1381,14 @@ export default function Page() {
     setAdminCodeInput("");
     setLoginError(null);
     resetFilters();
+
+    try {
+      supabase.auth.signOut().catch(err => {
+        console.warn("Supabase signOut silent error:", err);
+      });
+    } catch (err) {
+      console.warn("Supabase signOut error, forcing local logout:", err);
+    }
   };
 
   const resetFilters = () => {
@@ -1399,7 +1401,6 @@ export default function Page() {
     setFacilityFilter("ALL");
   };
 
-  // 관리자 수동 예약 학생 학번으로 검색
   const handleSearchStudentForManualReserve = async () => {
     if (manualStudentId.trim().length !== 8) {
       alert("학번은 8자리 숫자로 입력해 주세요.");
@@ -1407,7 +1408,7 @@ export default function Page() {
     }
     
     try {
-      if (isMockMode) return; // 로컬 데모 모드는 항상 폴백으로 빠집니다
+      if (isMockMode) return;
       const { data, error } = await supabase
         .from('profiles')
         .select('name')
@@ -1433,7 +1434,6 @@ export default function Page() {
     }
   };
 
-  // 관리자 수동 예약 처리
   const handleAdminManualReserve = async () => {
     if (!manualStudentId.trim() || !manualStudentName.trim()) {
       alert("학번과 이름을 입력해 주세요.");
@@ -1455,9 +1455,8 @@ export default function Page() {
 
     setManualLoading(true);
     
-    // Auto-detect duration from facility config
     const config = facilityConfigs[manualFacility.roomName];
-    const isUnlimited = config && (config.max_use_hours === null || config.max_use_hours === undefined);
+    const isUnlimited = config && (!config.max_use_hours || config.max_use_hours === 0);
     
     let effectiveDuration = manualDuration;
     let ends_at_str_value: string;
@@ -1467,7 +1466,6 @@ export default function Page() {
     const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
     
     if (isUnlimited) {
-      // For unlimited rooms, set end time to closing time
       const closeTime = config?.close_time || "22:00:00";
       ends_at_str_value = closeTime;
       const [ch, cm, cs] = closeTime.split(":").map(Number);
@@ -1487,17 +1485,16 @@ export default function Page() {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
 
-      // Supabase path - look up profile first
       const { data: profile } = await supabase.from('profiles').select('id').eq('university_id', manualStudentId).single();
       const userId = profile?.id || mockUserId;
 
       const { data: newResId, error: rpcErr } = await supabase.rpc('reserve_seat', { p_seat_id: manualSelectedSeatId, p_user_id: userId });
       if (rpcErr) throw rpcErr;
 
-      // Immediately verify the checkin in DB because this was booked manually by an admin (student is already at the library)
       if (newResId) {
         await supabase.from('reservations').update({
-          check_in_at: new Date().toISOString()
+          check_in_at: new Date().toISOString(),
+          is_checked_in: true
         }).eq('id', newResId);
       }
 
@@ -1556,12 +1553,10 @@ export default function Page() {
     }
   };
 
-  // Student DB reservations
   const handleReserveSeat = async (seatId: number, durationMinutes: number | null) => {
     if (!currentUser || !selectedFacility) return;
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
-      // Check operating hours config
       const config = facilityConfigs[selectedFacility.roomName];
       if (config) {
         const nowStr = new Date().toTimeString().slice(0, 8);
@@ -1590,7 +1585,6 @@ export default function Page() {
         ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
         use_timer = durationMinutes * 60;
       } else {
-        // Unspecified time - goes to closing hour
         const closing = config?.close_time || "22:00:00";
         ends_at_str = closing;
         const [ch, cm, cs] = closing.split(":").map(Number);
@@ -1783,7 +1777,6 @@ export default function Page() {
     }
   };
 
-  // 1차 부재 신고 등록
   const handleReportAbsence1st = async (seatId: number, photoUrl: string) => {
     if (!currentUser) return;
     try {
@@ -1822,7 +1815,6 @@ export default function Page() {
     }
   };
 
-  // 2차 최종 부재 신고 등록
   const handleReportAbsence2nd = async (seatId: number, photoUrl: string) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -1854,7 +1846,6 @@ export default function Page() {
     }
   };
 
-  // 조기 퇴실 예정 설정
   const handleSetEarlyCheckout = async (seatId: number, minutes: number) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -1883,7 +1874,6 @@ export default function Page() {
     }
   };
 
-  // 조기 퇴실 취소
   const handleCancelEarlyCheckout = async (seatId: number) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -1923,7 +1913,6 @@ export default function Page() {
     }
   };
 
-  // 민원 신고 등록
   const handleSubmitComplaint = async (category: string, description: string, photo: string | null): Promise<boolean> => {
     if (!currentUser || !selectedFacility) return false;
     try {
@@ -1944,7 +1933,7 @@ export default function Page() {
         status: 'PENDING'
       });
 
-      setCooldownTimeLeft(1800); // 30분 쿨타임
+      setCooldownTimeLeft(1800);
       fetchComplaints();
       return true;
     } catch (err) {
@@ -1970,7 +1959,6 @@ export default function Page() {
     }
   };
 
-  // 소명서 서면 제출
   const handleSubmitVindication = async (complaintId: number, type: string, comment: string) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -1995,7 +1983,6 @@ export default function Page() {
     }
   };
 
-  // 빈자리 알림 받기 신청
   const handleSubscribeNotification = async () => {
     if (!currentUser || !selectedFacility) return;
     try {
@@ -2014,7 +2001,6 @@ export default function Page() {
     }
   };
 
-  // Admin Actions: Immediate release (즉시 개방)
   const handleImmediateRelease = async (seatId: number) => {
     if (!selectedFacility) return;
     const seat = activeSeats.find(s => s.id === seatId);
@@ -2068,7 +2054,6 @@ export default function Page() {
     }
   };
 
-  // Admin Actions: Delayed release (10분 물품 정리 상태 개방)
   const handleDelayedRelease = async (seatId: number) => {
     if (!selectedFacility) return;
     const seat = activeSeats.find(s => s.id === seatId);
@@ -2118,7 +2103,6 @@ export default function Page() {
     }
   };
 
-  // Admin Actions: Resolve custom complaints
   const handleResolveComplaint = async (complaintId: number, comment: string) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -2140,7 +2124,6 @@ export default function Page() {
     }
   };
 
-  // [TODO 3] RBAC 우회 차단 모달 상태 감지 트리거
   useEffect(() => {
     if (currentUser && currentUser.role === "USER" && perspective === "ADMIN") {
       setShowUnauthorizedModal(true);
@@ -2148,7 +2131,6 @@ export default function Page() {
     }
   }, [currentUser, perspective]);
 
-  // [TODO 6] 학생 불편 민원 접수 대리 통로 ( handleSubmitComplaint 연계)
   const handleStudentAddComplaint = async (type: "NOISE" | "FACILITY", seatNumber: number, comment: string) => {
     const categoryMapping = {
       NOISE: "NOISE",
@@ -2159,20 +2141,18 @@ export default function Page() {
     alert("🔇 실시간 불편 신고가 관리실에 정상 접수되었습니다. 조치 후 마이페이지로 안내됩니다.");
   };
 
-  // [TODO 5.4] 민원 피드판 클릭 시 원터치 도면 포커싱 & 하이라이트 & 모달 자동 팝업
   const handleFocusComplaintSeat = (roomName: string, seatNumber: number) => {
     const targetFac = FACILITIES.find(f => f.name.includes(roomName) || f.roomName.includes(roomName) || roomName.includes(f.roomName));
     if (!targetFac) return;
 
     setSelectedFacility(targetFac);
 
-    // 해당 시설의 실시간 좌석 데이터 로드 후 매칭
     const currentSeatsList = facilitySeats[targetFac.id] || [];
     const targetSeat = currentSeatsList.find(s => s.seat_number === seatNumber);
     
     if (targetSeat) {
       setHighlightSeatId(targetSeat.id);
-      setSelectedSeat(targetSeat); // 관리자 즉석 대리 조치 모달 활성화
+      setSelectedSeat(targetSeat);
       
       setTimeout(() => {
         setHighlightSeatId(null);
@@ -2180,27 +2160,33 @@ export default function Page() {
     }
   };
 
-  // [TODO 5] All-in-One 관리자 즉석 대리 예약 핸들러 (실제 Supabase DB 연동)
   const handleAdminReserve = async (seatId: number, universityId: string, name: string, durationMinutes: number) => {
     if (!selectedFacility) return;
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
-      // 1. 대리 예약 대상 학생 프로필 조회/생성
       const fakeEmail = `${universityId}@daegu.ac.kr`;
       const { data: pData } = await supabase.from('profiles').select('id').eq('university_id', universityId).maybeSingle();
       
-      let studentUuid = "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"; // default 강민성 UUID fallback
+      let studentUuid = "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d";
       if (pData) {
         studentUuid = pData.id;
       }
 
-      // 2. 예약 RPC 실행
       const { error: resErr } = await supabase.rpc('reserve_seat', {
         p_seat_id: seatId,
         p_user_id: studentUuid
       });
 
       if (resErr) throw resErr;
+
+      const { data: newRes } = await supabase.from('reservations')
+        .select('id').eq('user_id', studentUuid).eq('seat_id', seatId).eq('status', 'ACTIVE').single();
+      if (newRes) {
+        await supabase.from('reservations').update({
+          check_in_at: new Date().toISOString(),
+          is_checked_in: true
+        }).eq('id', newRes.id);
+      }
 
       const now = new Date();
       const end = new Date(now.getTime() + durationMinutes * 60 * 1000);
@@ -2236,18 +2222,15 @@ export default function Page() {
     }
   };
 
-  // [TODO 5] All-in-One 관리자 대리 시간 연장
   const handleAdminExtend = async (seatId: number, extendMinutes: number) => {
     await handleExtendSeat(seatId, extendMinutes);
   };
 
-  // [TODO 5] All-in-One 관리자 대리 강제 퇴실/반납 (즉시 AVAILABLE 릴리즈)
   const handleAdminCheckout = async (seatId: number) => {
     await handleImmediateRelease(seatId);
     setSelectedSeat(null);
   };
 
-  // [TODO 5] 관리자 학생 제재(패널티) 누적 처리 (Supabase DB 영구 동기화)
   const handleAdminPenalty = async (universityId: string, name: string, reason: string, days: number) => {
     try {
       const penaltyDate = new Date();
@@ -2264,7 +2247,6 @@ export default function Page() {
     }
   };
 
-  // [TODO 5.3.4] 관리자 수동 점검중(MAINTENANCE) 설정 및 해제 (Supabase DB 영구 동기화)
   const handleAdminToggleMaintenance = async (seatId: number) => {
     if (!selectedFacility) return;
     const seat = activeSeats.find(s => s.id === seatId);
@@ -2302,7 +2284,6 @@ export default function Page() {
     }
   };
 
-  // Admin Actions: Operating config updates
   const handleUpdateConfig = async (roomName: string, openTime: string, closeTime: string, maxUseHours: number | null) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -2330,7 +2311,6 @@ export default function Page() {
     }
   };
 
-  // Admin Actions: Look up student information
   const handleSearchStudent = async (studentId: string) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -2353,7 +2333,6 @@ export default function Page() {
     }
   };
 
-  // Admin Actions: Apply penalty to user
   const handleApplyPenalty = async (studentUuid: string, days: number | null, reason: string) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -2374,7 +2353,6 @@ export default function Page() {
     }
   };
 
-  // Admin Actions: Proxy reservation on behalf of student
   const handleProxyReserve = async (studentUuid: string, studentId: string, studentName: string, facilityId: string, seatId: number, duration: number) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -2424,7 +2402,6 @@ export default function Page() {
     }
   };
 
-  // Admin Actions: Proxy checkouts
   const handleProxyCheckout = async (seatId: number, studentUuid: string) => {
     try {
       if (isMockMode) throw new Error("Mock mode enabled");
@@ -2464,7 +2441,6 @@ export default function Page() {
     }
   };
 
-  // Filters calculation
   const filteredFacilities = FACILITIES.filter(fac => {
     if (currentUser?.role === "ADMIN" && currentUser.managed_college_id) {
       if (fac.collegeId !== currentUser.managed_college_id) return false;
@@ -2474,7 +2450,6 @@ export default function Page() {
       if (!fac.buildingName.includes(searchBuilding)) return false;
     }
 
-    // [요청 3] 카테고리 필터 매핑
     if (facilityFilter !== "ALL") {
       if (fac.collegeId !== facilityFilter) return false;
     }
@@ -2496,7 +2471,6 @@ export default function Page() {
   });
 
 
-  // [TODO 9] 실시간 소음 온도 Heatmap 계산
   const getNoiseState = () => {
     if (!selectedFacility) return { noiseLevel: "COZY" as const, noiseComplaintsCount: 0 };
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -2513,7 +2487,6 @@ export default function Page() {
   };
   const { noiseLevel, noiseComplaintsCount } = getNoiseState();
 
-  // Render [내 예약 현황 & 이용 좌석 퀵 배너] recursively for home or room detail view
   const renderQuickReservationBanner = (showPlaceholder: boolean = false) => {
     if (!globalMyReservation) {
       if (!showPlaceholder) return null;
@@ -2629,7 +2602,6 @@ export default function Page() {
               </>
             )}
 
-            {/* 원클릭 빠른 제어 버튼 */}
             <div className="flex flex-wrap gap-2 w-full lg:w-auto mt-4 pt-2 border-t border-white/10">
               {!isVerified ? (
                 <>
@@ -2734,7 +2706,6 @@ export default function Page() {
     );
   };
 
-  // Login view if not logged in
   if (!isLoggedIn || !currentUser) {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-emerald-50 via-lime-50/10 to-white text-slate-800 relative">
@@ -2816,10 +2787,11 @@ export default function Page() {
                       <input
                         type="text"
                         maxLength={8}
+                        disabled={loginLoading}
                         value={studentIdInput}
                         onChange={(e) => setStudentIdInput(e.target.value.replace(/[^0-9]/g, ""))}
                         placeholder="예: 20222043"
-                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold text-slate-700 disabled:opacity-60"
                       />
                     </div>
                   </div>
@@ -2829,10 +2801,11 @@ export default function Page() {
                       <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-455" />
                       <input
                         type="password"
+                        disabled={loginLoading}
                         value={studentPasswordInput}
                         onChange={(e) => setStudentPasswordInput(e.target.value)}
                         placeholder="포털 비밀번호 입력"
-                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
+                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold text-slate-700 disabled:opacity-60"
                       />
                     </div>
                   </div>
@@ -2844,10 +2817,11 @@ export default function Page() {
                     <Key className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-450" />
                     <input
                       type="password"
+                      disabled={loginLoading}
                       value={adminCodeInput}
                       onChange={(e) => setAdminCodeInput(e.target.value)}
                       placeholder="관리자코드 (예: ADM-9942)"
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition-all font-bold text-slate-700 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -2855,10 +2829,23 @@ export default function Page() {
 
               <button
                 type="submit"
-                className="w-full py-3 mt-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-700/10 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5"
+                disabled={loginLoading}
+                className="w-full py-3 mt-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-700/10 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                <span>시작하기</span>
-                <ArrowRight className="h-4 w-4" />
+                {loginLoading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>로그인 연동 중...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>시작하기</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
               </button>
             </form>
 
@@ -2869,15 +2856,17 @@ export default function Page() {
               <div className="flex gap-2.5">
                 <button
                   type="button"
+                  disabled={loginLoading}
                   onClick={loginAsDemoStudent}
-                  className="flex-1 py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-150 text-xs font-bold transition-all cursor-pointer"
+                  className="flex-1 py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-150 text-xs font-bold transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   학생 SSO 로그인
                 </button>
                 <button
                   type="button"
+                  disabled={loginLoading}
                   onClick={loginAsDemoAdmin}
-                  className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 text-xs font-bold transition-all cursor-pointer"
+                  className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   관리자 SSO 로그인
                 </button>
@@ -2893,13 +2882,11 @@ export default function Page() {
     );
   }
 
-  // Facility List Main Page View
   if (selectedFacility === null) {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-gradient-to-br from-emerald-50 via-lime-50/10 to-white text-slate-800 relative">
         <YellowDropsBackground />
         
-        {/* Navbar */}
         <header className="sticky top-0 z-40 bg-white/80 border-b border-slate-200 backdrop-blur-md shadow-xs">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -2932,13 +2919,10 @@ export default function Page() {
           </div>
         </header>
 
-        {/* Main portal grid */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-10 mb-16 flex-grow w-full">
           
-                    {/* [TODO 2] 현재 내 좌석 이용 현황 퀵 배너 */}
           {perspective === "STUDENT" && renderQuickReservationBanner(true)}
 
-          {/* Main Info Banner */}
           <div className="mb-8 rounded-3xl bg-gradient-to-r from-emerald-800 to-emerald-950 p-8 text-white shadow-xl relative overflow-hidden">
             <div className="absolute inset-0 bg-gradient-to-br from-lime-500/10 to-transparent pointer-events-none" />
             <div className="relative z-10 max-w-2xl space-y-2">
@@ -2957,7 +2941,6 @@ export default function Page() {
               </p>
             </div>
             
-            {/* Quick stats on banner */}
             <div className="absolute right-8 bottom-8 hidden md:flex items-center gap-3">
               {currentUser.role === "ADMIN" ? (
                 <>
@@ -3149,7 +3132,7 @@ export default function Page() {
                   <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">④ 사용 시간 설정</p>
                   {(() => {
                     const manualConfig = manualFacility ? facilityConfigs[manualFacility.roomName] : null;
-                    const manualIsUnlimited = manualConfig && (manualConfig.max_use_hours === null || manualConfig.max_use_hours === undefined);
+                    const manualIsUnlimited = manualConfig && (!manualConfig.max_use_hours || manualConfig.max_use_hours === 0);
                     if (manualIsUnlimited) {
                       return (
                         <div className="py-3 px-4 bg-emerald-50 border border-emerald-200 rounded-lg text-center">
@@ -3167,6 +3150,7 @@ export default function Page() {
                         <div className="grid grid-cols-2 gap-1.5">
                           {durationOptions.map(min => (
                             <button
+                              type="button"
                               key={min}
                               onClick={() => setManualDuration(min)}
                               className={`py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
@@ -3187,6 +3171,7 @@ export default function Page() {
 
                 {/* Submit */}
                 <button
+                  type="button"
                   onClick={handleAdminManualReserve}
                   disabled={manualLoading || !manualStudentId || !manualStudentName || !manualFacility || !manualSelectedSeatId}
                   className="w-full py-3 bg-amber-500 hover:bg-amber-450 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold shadow-md transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
