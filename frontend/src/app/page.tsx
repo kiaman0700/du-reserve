@@ -1576,6 +1576,14 @@ export default function Page() {
         return;
       }
 
+      // Immediately checked-in (no verification needed)
+      if (resId) {
+        await supabase.from('reservations').update({
+          check_in_at: new Date().toISOString(),
+          is_checked_in: true
+        }).eq('id', resId);
+      }
+
       const now = new Date();
       let ends_at_str = "";
       let use_timer = undefined;
@@ -1626,6 +1634,7 @@ export default function Page() {
         current_user_id: currentUser.id,
         current_user_name: `${currentUser.name} (${currentUser.university_id})`,
         current_reservation_id: Math.floor(Math.random() * 10000),
+        check_in_at: new Date().toISOString(), // Immediately checked-in mock
         use_timer_seconds: use_timer,
         total_duration_minutes: durationMinutes || 120,
         reserved_at: reserved_at_str,
@@ -2510,7 +2519,7 @@ export default function Page() {
                 현재 대여 또는 이용 중인 좌석이 없습니다.
               </h3>
               <p className="text-xs text-slate-500 leading-relaxed font-semibold max-w-3xl">
-                대구대학교 스마트 공간 예약 포털에 오신 것을 환영합니다! 아래 열람실 목록에서 조용하고 쾌적하게 공부할 수 있는 명당 좌석을 선택해 보세요. 실시간 GPS 위치 또는 QR코드 인증을 통해 간편하게 입실할 수 있습니다.
+                대구대학교 스마트 공간 예약 포털에 오신 것을 환영합니다! 아래 열람실 목록에서 조용하고 쾌적하게 공부할 수 있는 명당 좌석을 선택해 보세요. 예약 즉시 입실 처리가 완료되어 별도의 인증 없이 바로 이용이 가능합니다.
               </p>
             </div>
             
