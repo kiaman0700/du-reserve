@@ -933,11 +933,7 @@ export default function Page() {
 
   useEffect(() => {
     if (globalMyReservation) {
-      if (globalMyReservation.check_in_at) {
-        setIsVerified(true);
-      } else {
-        setIsVerified(false);
-      }
+      setIsVerified(true);
     } else {
       setIsVerified(false);
       setCheckinTimeLeft(900);
@@ -1254,12 +1250,12 @@ export default function Page() {
   };
 
   const loginAsDemoStudent = async () => {
-    setStudentIdInput("20222043");
-    setStudentPasswordInput("20222043__daegu!");
-    setStudentNameInput("강민성");
+    setStudentIdInput("22222043");
+    setStudentPasswordInput("1234qwer");
+    setStudentNameInput("박성헌");
     setLoginLoading(true);
-    const email = "20222043@daegu.ac.kr";
-    const password = "20222043__daegu!";
+    const email = "22222043@daegu.ac.kr";
+    const password = "1234qwer";
     try {
       const { error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 3500);
       if (error) {
@@ -1268,8 +1264,8 @@ export default function Page() {
           password,
           options: {
             data: {
-              university_id: "20222043",
-              name: "강민성 (컴퓨터공학과)",
+              university_id: "22222043",
+              name: "박성헌 (컴퓨터공학전공)",
               role: 'USER'
             }
           }
@@ -1285,15 +1281,15 @@ export default function Page() {
       if (currentSessionUser) {
         await supabase.from('profiles').upsert({
           id: currentSessionUser.id,
-          university_id: "20222043",
-          name: "강민성 (컴퓨터공학과)",
+          university_id: "22222043",
+          name: "박성헌 (컴퓨터공학전공)",
           role: 'USER'
         }).select();
  
         setCurrentUser({
           id: currentSessionUser.id,
-          university_id: "20222043",
-          name: "강민성 (컴퓨터공학과)",
+          university_id: "22222043",
+          name: "박성헌 (컴퓨터공학전공)",
           role: "USER"
         });
         setPerspective("STUDENT");
@@ -1308,8 +1304,8 @@ export default function Page() {
       setIsLoggedIn(true);
       setCurrentUser({
         id: "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d",
-        university_id: "20222043",
-        name: "강민성 (컴퓨터공학과)",
+        university_id: "22222043",
+        name: "박성헌 (컴퓨터공학전공)",
         role: "USER"
       });
       setPerspective("STUDENT");
