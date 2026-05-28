@@ -580,6 +580,18 @@ export default function Page() {
               managed_college_id: profile.managed_college_id
             });
             setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
+          } else {
+            // FALLBACK: Use session user metadata to avoid silent failure when profile table doesn't have the record yet!
+            const meta = session.user.user_metadata || {};
+            const defaultRole = meta.role === 'ADMIN' ? 'ADMIN' : 'USER';
+            setCurrentUser({
+              id: session.user.id,
+              university_id: meta.university_id || session.user.email?.split('@')[0] || 'unknown',
+              name: meta.name || '사용자',
+              role: defaultRole,
+              managed_college_id: meta.managed_college_id || null
+            });
+            setPerspective(defaultRole === 'ADMIN' ? 'ADMIN' : 'STUDENT');
           }
         }
       } catch (err) {
@@ -604,7 +616,7 @@ export default function Page() {
                 setCurrentUser(null);
                 return;
               }
-              if (profile.university_id === "22221992" && profile.name !== "이준엽 (컴퓨터공학전공)") {
+              if (profile.university_id === "22221992" && profile.name !== "이준엽 (컴퓨학전공)") {
                 await supabase.from('profiles').update({ name: '이준엽 (컴퓨터공학전공)' }).eq('id', session.user.id);
                 profile.name = '이준엽 (컴퓨터공학전공)';
               }
@@ -621,6 +633,18 @@ export default function Page() {
                 managed_college_id: profile.managed_college_id
               });
               setPerspective(profile.role === 'ADMIN' ? 'ADMIN' : 'STUDENT');
+            } else {
+              // FALLBACK: Use session user metadata to avoid silent failure when profile table doesn't have the record yet!
+              const meta = session.user.user_metadata || {};
+              const defaultRole = meta.role === 'ADMIN' ? 'ADMIN' : 'USER';
+              setCurrentUser({
+                id: session.user.id,
+                university_id: meta.university_id || session.user.email?.split('@')[0] || 'unknown',
+                name: meta.name || '사용자',
+                role: defaultRole,
+                managed_college_id: meta.managed_college_id || null
+              });
+              setPerspective(defaultRole === 'ADMIN' ? 'ADMIN' : 'STUDENT');
             }
           } catch (profileErr) {
             console.warn("Failed to fetch auth change profile", profileErr);
@@ -1104,6 +1128,31 @@ export default function Page() {
           const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
           if (signIn2Err) throw signIn2Err;
         }
+
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentSessionUser = session?.user;
+
+        if (currentSessionUser) {
+          const studentName = studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : "강민성 (컴퓨터공학과)";
+          await supabase.from('profiles').upsert({
+            id: currentSessionUser.id,
+            university_id: studentIdInput.trim(),
+            name: studentName,
+            role: 'USER'
+          });
+
+          setCurrentUser({
+            id: currentSessionUser.id,
+            university_id: studentIdInput.trim(),
+            name: studentName,
+            role: "USER"
+          });
+          setPerspective("STUDENT");
+          setIsLoggedIn(true);
+        } else {
+          throw new Error("No session user found after successful sign in");
+        }
+
         setIsMockMode(false);
       } catch (err: any) {
         console.warn("Supabase auth login failed, using local mock fallback:", err);
@@ -1147,6 +1196,32 @@ export default function Page() {
           const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
           if (signIn2Err) throw signIn2Err;
         }
+
+        const { data: { session } } = await supabase.auth.getSession();
+        const currentSessionUser = session?.user;
+
+        if (currentSessionUser) {
+          await supabase.from('profiles').upsert({
+            id: currentSessionUser.id,
+            university_id: adminCodeInput.trim(),
+            name: "이영희 사서관",
+            role: 'ADMIN',
+            managed_college_id: 'library'
+          });
+
+          setCurrentUser({
+            id: currentSessionUser.id,
+            university_id: adminCodeInput.trim(),
+            name: "이영희 사서관",
+            role: "ADMIN",
+            managed_college_id: "library"
+          });
+          setPerspective("ADMIN");
+          setIsLoggedIn(true);
+        } else {
+          throw new Error("No session user found after successful sign in");
+        }
+
         setIsMockMode(false);
       } catch (err: any) {
         console.warn("Supabase auth admin login failed, using local mock fallback:", err);
@@ -1188,6 +1263,31 @@ export default function Page() {
         if (signUpErr) throw signUpErr;
         const { error: signIn2Err } = await supabase.auth.signInWithPassword({ email, password });
         if (signIn2Err) throw signIn2Err;
+      }
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentSessionUser = session?.user;
+
+      if (currentSessionUser) {
+        // Proactively upsert profiles just in case
+        await supabase.from('profiles').upsert({
+          id: currentSessionUser.id,
+          university_id: "20222043",
+          name: "강민성 (컴퓨터공학과)",
+          role: 'USER'
+        });
+
+        // Set state directly to guarantee instant transition
+        setCurrentUser({
+          id: currentSessionUser.id,
+          university_id: "20222043",
+          name: "강민성 (컴퓨터공학과)",
+          role: "USER"
+        });
+        setPerspective("STUDENT");
+        setIsLoggedIn(true);
+      } else {
+        throw new Error("No session user found after successful sign in");
       }
       setIsMockMode(false);
     } catch (err) {
@@ -1240,6 +1340,19 @@ export default function Page() {
           role: 'ADMIN',
           managed_college_id: 'library'
         });
+
+        // Set state directly to guarantee instant transition
+        setCurrentUser({
+          id: currentSessionUser.id,
+          university_id: "ADM-9942",
+          name: "이영희 사서관",
+          role: "ADMIN",
+          managed_college_id: "library"
+        });
+        setPerspective("ADMIN");
+        setIsLoggedIn(true);
+      } else {
+        throw new Error("No session user found after successful sign in");
       }
       setIsMockMode(false);
     } catch (err) {
