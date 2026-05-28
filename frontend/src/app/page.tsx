@@ -163,6 +163,14 @@ const getMockUuid = (id: string, role: string) => {
   return `${prefix}-${clean}`;
 };
 
+const getStudentName = (universityId: string): string => {
+  const cleanId = universityId.trim();
+  if (cleanId === "22221992") return "이준엽 (컴퓨터공학전공)";
+  if (cleanId === "22222043") return "박성헌 (컴퓨터공학전공)";
+  if (cleanId === "20222043") return "강민성 (컴퓨터공학과)";
+  return `학생_${cleanId}`;
+};
+
 const generateMockDbSeats = () => {
   const seatsList: Seat[] = [];
   let globalId = 1;
@@ -577,9 +585,12 @@ export default function Page() {
               setCurrentUser(null);
               return;
             }
-            if (profile.university_id === "22221992" && profile.name !== "이준엽 (컴퓨터공학전공)") {
-              await supabase.from('profiles').update({ name: '이준엽 (컴퓨터공학전공)' }).eq('id', session.user.id);
-              profile.name = '이준엽 (컴퓨터공학전공)';
+            const expectedName = getStudentName(profile.university_id);
+            if (expectedName.startsWith("이준엽") || expectedName.startsWith("박성헌") || expectedName.startsWith("강민성")) {
+              if (profile.name !== expectedName) {
+                await supabase.from('profiles').update({ name: expectedName }).eq('id', session.user.id);
+                profile.name = expectedName;
+              }
             }
             if (profile.university_id === "ADM-9942" && (profile.role !== "ADMIN" || profile.managed_college_id !== "library")) {
               await supabase.from('profiles').update({ role: 'ADMIN', managed_college_id: 'library' }).eq('id', session.user.id);
@@ -627,9 +638,12 @@ export default function Page() {
               setCurrentUser(null);
               return;
             }
-            if (profile.university_id === "22221992" && profile.name !== "이준엽 (컴퓨학전공)") {
-              await supabase.from('profiles').update({ name: '이준엽 (컴퓨터공학전공)' }).eq('id', session.user.id);
-              profile.name = '이준엽 (컴퓨터공학전공)';
+            const expectedName = getStudentName(profile.university_id);
+            if (expectedName.startsWith("이준엽") || expectedName.startsWith("박성헌") || expectedName.startsWith("강민성")) {
+              if (profile.name !== expectedName) {
+                await supabase.from('profiles').update({ name: expectedName }).eq('id', session.user.id);
+                profile.name = expectedName;
+              }
             }
             if (profile.university_id === "ADM-9942" && (profile.role !== "ADMIN" || profile.managed_college_id !== "library")) {
               await supabase.from('profiles').update({ role: 'ADMIN', managed_college_id: 'library' }).eq('id', session.user.id);
@@ -1114,7 +1128,7 @@ export default function Page() {
               options: {
                 data: {
                   university_id: studentIdInput.trim(),
-                  name: studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : `강민성 (컴퓨터공학과)`,
+                  name: getStudentName(studentIdInput),
                   role: 'USER'
                 }
               }
@@ -1130,7 +1144,7 @@ export default function Page() {
           const currentSessionUser = session?.user;
 
           if (currentSessionUser) {
-            const studentName = studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : "강민성 (컴퓨터공학과)";
+            const studentName = getStudentName(studentIdInput);
             await supabase.from('profiles').upsert({
               id: currentSessionUser.id,
               university_id: studentIdInput.trim(),
@@ -1158,7 +1172,7 @@ export default function Page() {
           setCurrentUser({
             id: getMockUuid(studentIdInput.trim(), "USER"),
             university_id: studentIdInput.trim(),
-            name: studentIdInput.trim() === "22221992" ? "이준엽 (컴퓨터공학전공)" : `강민성 (컴퓨터공학과)`,
+            name: getStudentName(studentIdInput),
             role: "USER"
           });
           setPerspective("STUDENT");
