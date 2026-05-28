@@ -1573,6 +1573,34 @@ export default function Page() {
     }
   };
 
+  const handleSkip10Minutes = async () => {
+    const activeRes = myReservation || globalMyReservation;
+    if (!currentUser || !activeRes) return;
+    const currentSeconds = activeRes.use_timer_seconds || 0;
+    const nextSeconds = Math.max(0, currentSeconds - 600);
+
+    try {
+      if (isMockMode) throw new Error("Mock mode enabled");
+      
+      const { error } = await supabase
+        .from('seats')
+        .update({ use_timer_seconds: nextSeconds })
+        .eq('id', activeRes.id);
+
+      if (error) throw error;
+      
+      fetchSeatsAndReports();
+      alert(`⏱️ [시간 가속] 잔여 시간이 10분 차감되었습니다. (새 잔여시간: ${Math.floor(nextSeconds / 60)}분 ${nextSeconds % 60}초)`);
+    } catch (err) {
+      console.warn("Failed to skip 10 minutes on DB, applying locally:", err);
+      updateMockSeat(activeRes.id, s => ({
+        ...s,
+        use_timer_seconds: nextSeconds
+      }));
+      alert(`⏱️ [시간 가속] 잔여 시간이 10분 차감되었습니다 (로컬 데모).`);
+    }
+  };
+
   // 1차 부재 신고 등록
   const handleReportAbsence1st = async (seatId: number, photoUrl: string) => {
     if (!currentUser) return;
@@ -3333,6 +3361,7 @@ export default function Page() {
               onSubscribeNotification={handleSubscribeNotification}
               timerSpeedUp={timerSpeedUp}
               setTimerSpeedUp={setTimerSpeedUp}
+              onSkip10Minutes={handleSkip10Minutes}
               selectedFacility={selectedFacility}
               allSeats={activeSeats}
               checkinTimeLeft={checkinTimeLeft}

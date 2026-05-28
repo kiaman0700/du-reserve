@@ -79,6 +79,7 @@ interface UserDashboardProps {
   onSubscribeNotification: () => void;
   timerSpeedUp: boolean;
   setTimerSpeedUp: (val: boolean) => void;
+  onSkip10Minutes: () => void;
   selectedFacility: Facility | null;
   allSeats: Seat[];
   checkinTimeLeft: number;
@@ -110,6 +111,7 @@ export default function UserDashboard({
   onSubscribeNotification,
   timerSpeedUp,
   setTimerSpeedUp,
+  onSkip10Minutes,
   selectedFacility,
   allSeats,
   checkinTimeLeft,
@@ -686,6 +688,33 @@ export default function UserDashboard({
             )}
           </div>
 
+          {/* Simulation controller with 10 minutes skip */}
+          <div className="mt-8 pt-4 border-t border-slate-200">
+            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between text-[10px] text-emerald-700 font-bold">
+                <span>🧪 테스트용 시뮬레이션 설정</span>
+                <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-1 py-0.5 rounded font-mono">DEV MODE</span>
+              </div>
+              <button
+                type="button"
+                onClick={onSkip10Minutes}
+                disabled={!userReservation}
+                className={`w-full py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer ${
+                  userReservation 
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-3xs" 
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                <span>이용 시간 10분 건너뛰기 (-10분)</span>
+              </button>
+              <p className="text-[10px] text-slate-400 leading-tight font-semibold">
+                {userReservation 
+                  ? "클릭 시 현재 내가 이용 중인 좌석의 잔여 이용 시간이 즉시 10분 단축되어 만기 임박(10분 전 연장 기능 활성화) 및 자동 퇴실 등을 신속히 확인해 볼 수 있습니다." 
+                  : "💡 예약 좌석이 있을 때 활성화되며, 현재 잔여 이용 시간을 10분 즉시 차감할 수 있습니다."}
+              </p>
+            </div>
+          </div>
 
         </div>
       </div>
