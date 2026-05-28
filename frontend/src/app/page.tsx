@@ -380,198 +380,155 @@ export default function Page() {
     
     const isLibrary = selectedFacility.collegeId === 'library';
     if (isLibrary) {
-      if (isMockMode) {
-        if (!facilitySeats[selectedFacility.id]) {
-          const roomCapacity = selectedFacility.capacity || 24;
-          const mockSeats = Array.from({ length: roomCapacity }, (_, i) => {
-            const seatNumber = i + 1;
-            const hash = selectedFacility.id.charCodeAt(0) + selectedFacility.id.charCodeAt(1) + i;
-            if (hash % 5 === 0) {
-              return {
-                id: seatNumber,
-                seat_number: seatNumber,
-                room_name: selectedFacility.roomName,
-                status: "OCCUPIED" as SeatStatus,
-                current_user_id: `mock-user-${hash}`,
-                current_user_name: `임의학생 (학부생)`,
-                current_reservation_id: 1000 + hash,
-                use_timer_seconds: 7200,
-                total_duration_minutes: 120,
-                reserved_at: "18:00:00",
-                ends_at: "20:00:00"
-              };
-            }
-            return {
-              id: seatNumber,
-              seat_number: seatNumber,
-              room_name: selectedFacility.roomName,
-              status: "AVAILABLE" as SeatStatus
-            };
-          });
-          setFacilitySeats(prev => ({
-            ...prev,
-            [selectedFacility.id]: mockSeats
-          }));
-        }
-        return;
-      }
+      // Library rooms: always fetch from real Supabase DB
+      let seatsData: any[] | null = null;
       try {
-        const { data: seatsData, error: seatsErr } = await supabase
+        const result = await supabase
           .from('seats')
           .select('*')
           .eq('room_name', selectedFacility.roomName)
           .order('seat_number', { ascending: true });
 
-        if (seatsErr) throw seatsErr;
-
-        if (!seatsData || seatsData.length === 0) {
-          throw new Error("No seats found in database for room " + selectedFacility.roomName);
+        if (result.error) {
+          console.error('[Library Seats] DB query error:', result.error);
+        } else {
+          seatsData = result.data;
+          console.log(`[Library Seats] Loaded ${seatsData?.length || 0} seats for ${selectedFacility.roomName}`);
         }
+      } catch (queryErr) {
+        console.error('[Library Seats] Exception during query:', queryErr);
+      }
 
-        let resData: any[] = [];
-        try {
-          const { data, error: resErr } = await supabase
-            .from('reservations')
-            .select(`
-              id,
-              seat_id,
-              user_id,
-              status,
-              profiles (
-                university_id,
-                name
-              )
-            `)
-            .eq('status', 'ACTIVE');
-          if (resErr) {
-            console.warn("Supabase active reservations fetch failed (RLS/join):", resErr);
-          } else if (data) {
-            resData = data;
-          }
-        } catch (resException) {
-          console.warn("Exception fetching active reservations:", resException);
-        }
-
-        let reportsData: any[] = [];
-        try {
-          const { data, error: reportsErr } = await supabase
-            .from('absence_reports')
-            .select('*')
-            .eq('status', 'PENDING');
-          if (reportsErr) {
-            console.warn("Supabase absence reports fetch failed (RLS):", reportsErr);
-          } else if (data) {
-            reportsData = data;
-          }
-        } catch (repException) {
-          console.warn("Exception fetching absence reports:", repException);
-        }
-
-        const mappedSeats = (seatsData || []).map((seat: any) => {
-          const activeRes = resData?.find((r: any) => r.seat_id === seat.id);
-          
-          let occupantName = undefined;
-          if (activeRes && activeRes.profiles) {
-            const profile: any = Array.isArray(activeRes.profiles) ? activeRes.profiles[0] : activeRes.profiles;
-            if (profile) occupantName = `${profile.name} (${profile.university_id})`;
-          }
-
-          let clearingTimerSeconds = undefined;
-          if (seat.status === 'CLEARING') {
-            const updatedAt = new Date(seat.updated_at).getTime();
-            const now = Date.now();
-            const elapsed = Math.floor((now - updatedAt) / 1000);
-            clearingTimerSeconds = Math.max(0, 600 - elapsed);
-          }
-
-          return {
-            id: seat.id,
-            seat_number: seat.seat_number,
-            room_name: seat.room_name,
-            status: seat.status as SeatStatus,
-            current_user_id: activeRes ? activeRes.user_id : undefined,
-            current_user_name: occupantName,
-            current_reservation_id: activeRes ? activeRes.id : undefined,
-            clearing_timer_seconds: clearingTimerSeconds,
-            use_timer_seconds: seat.use_timer_seconds !== null ? seat.use_timer_seconds : undefined,
-            total_duration_minutes: seat.total_duration_minutes !== null ? seat.total_duration_minutes : undefined,
-            reserved_at: seat.reserved_at || undefined,
-            ends_at: seat.ends_at || undefined
-          };
-        });
-
-        setFacilitySeats(prev => ({
-          ...prev,
-          [selectedFacility.id]: mappedSeats
-        }));
-
-        const mappedReports = (reportsData || []).map((report: any) => {
-          const firstReportedAt = new Date(report.first_reported_at).getTime();
-          const now = Date.now();
-          const elapsed = Math.floor((now - firstReportedAt) / 1000);
-          const warningTimerSeconds = Math.max(0, 600 - elapsed);
-
-          return {
-            id: report.id,
-            seat_id: report.seat_id,
-            reporter_id: report.reporter_id,
-            first_photo_url: report.first_photo_url,
-            first_reported_at: report.first_reported_at,
-            second_photo_url: report.second_photo_url || undefined,
-            second_reported_at: report.second_reported_at || undefined,
-            warning_timer_seconds: warningTimerSeconds,
-            status: report.status
-          };
-        });
-
-        setAbsenceReports(mappedReports);
-
-        // Check if current user is subscribed to empty seat notifications for this room
-        if (currentUser) {
-          try {
-            const { data: sub } = await supabase
-              .from('notifications')
-              .select('*')
-              .eq('user_id', currentUser.id)
-              .eq('room_name', selectedFacility.roomName)
-              .eq('status', 'PENDING');
-            setNotificationSubscribed(!!(sub && sub.length > 0));
-          } catch (notifErr) {
-            console.warn("Failed to fetch notification status:", notifErr);
-          }
-        }
-      } catch (err) {
-        console.error('실시간 데이터 조회 실패, 로컬 mock 데이터 사용:', err);
+      // If DB query failed or returned empty, use fallback mock data
+      if (!seatsData || seatsData.length === 0) {
+        console.warn(`[Library Seats] No DB data for ${selectedFacility.roomName}, generating fallback seats`);
         const roomCapacity = selectedFacility.capacity || 24;
-        const mockSeats = Array.from({ length: roomCapacity }, (_, i) => {
-          const seatNumber = i + 1;
-          const hash = selectedFacility.id.charCodeAt(0) + selectedFacility.id.charCodeAt(1) + i;
-          if (hash % 5 === 0) {
-            return {
-              id: seatNumber,
-              seat_number: seatNumber,
-              room_name: selectedFacility.roomName,
-              status: "OCCUPIED" as SeatStatus,
-              current_user_id: `mock-user-${hash}`,
-              current_user_name: `임의학생 (학부생)`,
-              current_reservation_id: 1000 + hash,
-              use_timer_seconds: 7200,
-              total_duration_minutes: 120,
-              reserved_at: "18:00:00",
-              ends_at: "20:00:00"
-            };
-          }
-          return {
-            id: seatNumber,
-            seat_number: seatNumber,
-            room_name: selectedFacility.roomName,
-            status: "AVAILABLE" as SeatStatus
-          };
-        });
+        const fallbackSeats: Seat[] = Array.from({ length: roomCapacity }, (_, i) => ({
+          id: 80000 + (selectedFacility.id.charCodeAt(4) || 0) * 100 + i + 1,
+          seat_number: i + 1,
+          room_name: selectedFacility.roomName,
+          status: "AVAILABLE" as SeatStatus
+        }));
         setFacilitySeats(prev => ({
           ...prev,
-          [selectedFacility.id]: mockSeats
+          [selectedFacility.id]: fallbackSeats
         }));
+        return;
+      }
+
+      // Safely fetch reservations (RLS may restrict for students)
+      let resData: any[] = [];
+      try {
+        const { data, error: resErr } = await supabase
+          .from('reservations')
+          .select(`
+            id,
+            seat_id,
+            user_id,
+            status,
+            profiles (
+              university_id,
+              name
+            )
+          `)
+          .eq('status', 'ACTIVE');
+        if (resErr) {
+          console.warn("Supabase active reservations fetch failed (RLS/join):", resErr);
+        } else if (data) {
+          resData = data;
+        }
+      } catch (resException) {
+        console.warn("Exception fetching active reservations:", resException);
+      }
+
+      // Safely fetch absence reports (RLS may restrict for students)
+      let reportsData: any[] = [];
+      try {
+        const { data, error: reportsErr } = await supabase
+          .from('absence_reports')
+          .select('*')
+          .eq('status', 'PENDING');
+        if (reportsErr) {
+          console.warn("Supabase absence reports fetch failed (RLS):", reportsErr);
+        } else if (data) {
+          reportsData = data;
+        }
+      } catch (repException) {
+        console.warn("Exception fetching absence reports:", repException);
+      }
+
+      const mappedSeats = seatsData.map((seat: any) => {
+        const activeRes = resData?.find((r: any) => r.seat_id === seat.id);
+        
+        let occupantName = undefined;
+        if (activeRes && activeRes.profiles) {
+          const profile: any = Array.isArray(activeRes.profiles) ? activeRes.profiles[0] : activeRes.profiles;
+          if (profile) occupantName = `${profile.name} (${profile.university_id})`;
+        }
+
+        let clearingTimerSeconds = undefined;
+        if (seat.status === 'CLEARING') {
+          const updatedAt = new Date(seat.updated_at).getTime();
+          const now = Date.now();
+          const elapsed = Math.floor((now - updatedAt) / 1000);
+          clearingTimerSeconds = Math.max(0, 600 - elapsed);
+        }
+
+        return {
+          id: seat.id,
+          seat_number: seat.seat_number,
+          room_name: seat.room_name,
+          status: seat.status as SeatStatus,
+          current_user_id: activeRes ? activeRes.user_id : undefined,
+          current_user_name: occupantName,
+          current_reservation_id: activeRes ? activeRes.id : undefined,
+          clearing_timer_seconds: clearingTimerSeconds,
+          use_timer_seconds: seat.use_timer_seconds !== null ? seat.use_timer_seconds : undefined,
+          total_duration_minutes: seat.total_duration_minutes !== null ? seat.total_duration_minutes : undefined,
+          reserved_at: seat.reserved_at || undefined,
+          ends_at: seat.ends_at || undefined
+        };
+      });
+
+      setFacilitySeats(prev => ({
+        ...prev,
+        [selectedFacility.id]: mappedSeats
+      }));
+
+      const mappedReports = (reportsData || []).map((report: any) => {
+        const firstReportedAt = new Date(report.first_reported_at).getTime();
+        const now = Date.now();
+        const elapsed = Math.floor((now - firstReportedAt) / 1000);
+        const warningTimerSeconds = Math.max(0, 600 - elapsed);
+
+        return {
+          id: report.id,
+          seat_id: report.seat_id,
+          reporter_id: report.reporter_id,
+          first_photo_url: report.first_photo_url,
+          first_reported_at: report.first_reported_at,
+          second_photo_url: report.second_photo_url || undefined,
+          second_reported_at: report.second_reported_at || undefined,
+          warning_timer_seconds: warningTimerSeconds,
+          status: report.status
+        };
+      });
+
+      setAbsenceReports(mappedReports);
+
+      // Check if current user is subscribed to empty seat notifications for this room
+      if (currentUser) {
+        try {
+          const { data: sub } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .eq('room_name', selectedFacility.roomName)
+            .eq('status', 'PENDING');
+          setNotificationSubscribed(!!(sub && sub.length > 0));
+        } catch (notifErr) {
+          console.warn("Failed to fetch notification status:", notifErr);
+        }
       }
     } else {
       // Fallback for mock rooms (using existing generated dbSeats of correct capacities)
@@ -966,27 +923,68 @@ export default function Page() {
   }, [selectedFacility, facilitySeats, currentUser]);
 
   // 수동 예약 패널: 시설 변경 시 해당 시설의 좌석 목록 로드
+  const prevManualFacilityRef = React.useRef<string | null>(null);
   useEffect(() => {
     if (!manualFacility) {
       setManualSeats([]);
       setManualSelectedSeatId(null);
+      prevManualFacilityRef.current = null;
       return;
     }
+    const facilityChanged = prevManualFacilityRef.current !== manualFacility.id;
+    
     // facilitySeats에 이미 로드된 경우 재사용, 없으면 mock 생성
     const existing = facilitySeats[manualFacility.id];
     if (existing && existing.length > 0) {
       setManualSeats(existing);
     } else {
-      // Mock 생성
-      const mockSeats: Seat[] = Array.from({ length: manualFacility.capacity }, (_, i) => ({
-        id: 90000 + (FACILITIES.indexOf(manualFacility) * 100) + i + 1,
-        seat_number: i + 1,
-        room_name: manualFacility.roomName,
-        status: "AVAILABLE" as const
-      }));
-      setManualSeats(mockSeats);
+      // Library rooms: try to load from DB directly
+      if (manualFacility.collegeId === 'library' && !isMockMode) {
+        (async () => {
+          try {
+            const { data, error } = await supabase
+              .from('seats')
+              .select('*')
+              .eq('room_name', manualFacility.roomName)
+              .order('seat_number', { ascending: true });
+            if (!error && data && data.length > 0) {
+              const mapped: Seat[] = data.map((seat: any) => ({
+                id: seat.id,
+                seat_number: seat.seat_number,
+                room_name: seat.room_name,
+                status: seat.status as SeatStatus
+              }));
+              setManualSeats(mapped);
+              return;
+            }
+          } catch (err) {
+            console.warn('[ManualReserve] Failed to load library seats from DB:', err);
+          }
+          // Fallback mock
+          const mockSeats: Seat[] = Array.from({ length: manualFacility.capacity }, (_, i) => ({
+            id: 90000 + (FACILITIES.indexOf(manualFacility) * 100) + i + 1,
+            seat_number: i + 1,
+            room_name: manualFacility.roomName,
+            status: "AVAILABLE" as const
+          }));
+          setManualSeats(mockSeats);
+        })();
+      } else {
+        // Mock 생성
+        const mockSeats: Seat[] = Array.from({ length: manualFacility.capacity }, (_, i) => ({
+          id: 90000 + (FACILITIES.indexOf(manualFacility) * 100) + i + 1,
+          seat_number: i + 1,
+          room_name: manualFacility.roomName,
+          status: "AVAILABLE" as const
+        }));
+        setManualSeats(mockSeats);
+      }
     }
-    setManualSelectedSeatId(null);
+    // Only reset seat selection when the facility actually changes
+    if (facilityChanged) {
+      setManualSelectedSeatId(null);
+      prevManualFacilityRef.current = manualFacility.id;
+    }
   }, [manualFacility, facilitySeats]);
 
   // Check and trigger empty seat subscription push
@@ -1315,14 +1313,37 @@ export default function Page() {
     }
 
     setManualLoading(true);
-    try {
-      const now = new Date();
-      const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    
+    // Auto-detect duration from facility config
+    const config = facilityConfigs[manualFacility.roomName];
+    const isUnlimited = config && (config.max_use_hours === null || config.max_use_hours === undefined);
+    
+    let effectiveDuration = manualDuration;
+    let ends_at_str_value: string;
+    let use_timer_value: number;
+    
+    const now = new Date();
+    const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    
+    if (isUnlimited) {
+      // For unlimited rooms, set end time to closing time
+      const closeTime = config?.close_time || "22:00:00";
+      ends_at_str_value = closeTime;
+      const [ch, cm, cs] = closeTime.split(":").map(Number);
+      const closingDate = new Date();
+      closingDate.setHours(ch, cm, cs);
+      const diffMs = closingDate.getTime() - now.getTime();
+      use_timer_value = Math.max(0, Math.floor(diffMs / 1000));
+      effectiveDuration = Math.floor(use_timer_value / 60);
+    } else {
       const end = new Date(now.getTime() + manualDuration * 60 * 1000);
-      const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-      const use_timer = manualDuration * 60;
-      const mockUserId = `manual-${manualStudentId}-${Date.now()}`;
+      ends_at_str_value = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+      use_timer_value = manualDuration * 60;
+    }
+    
+    const mockUserId = `manual-${manualStudentId}-${Date.now()}`;
 
+    try {
       if (isMockMode) throw new Error("Mock mode enabled");
 
       // Supabase path - look up profile first
@@ -1331,21 +1352,16 @@ export default function Page() {
 
       await supabase.rpc('reserve_seat', { p_seat_id: manualSelectedSeatId, p_user_id: userId });
       await supabase.from('seats').update({
-        use_timer_seconds: use_timer,
-        total_duration_minutes: manualDuration,
+        use_timer_seconds: use_timer_value,
+        total_duration_minutes: isUnlimited ? null : effectiveDuration,
         reserved_at: reserved_at_str,
-        ends_at: ends_at_str
+        ends_at: ends_at_str_value
       }).eq('id', manualSelectedSeatId);
 
-      alert(`✅ 수동 예약 완료!\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${manualDuration}분`);
+      alert(`✅ 수동 예약 완료!\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${isUnlimited ? '무제한 (폐관까지)' : effectiveDuration + '분'}`);
     } catch (err: any) {
       console.warn("Admin manual reserve - using mock mode:", err);
-      const now = new Date();
-      const reserved_at_str = now.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-      const end = new Date(now.getTime() + manualDuration * 60 * 1000);
-      const ends_at_str = end.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-      const use_timer = manualDuration * 60;
-      const mockUserId = `manual-${manualStudentId}`;
+      const mockUserIdFallback = `manual-${manualStudentId}`;
 
       const seatInManual = manualSeats.find(s => s.id === manualSelectedSeatId);
       if (seatInManual) {
@@ -1354,13 +1370,13 @@ export default function Page() {
           updateMockSeat(dbSeat.id, s => ({
             ...s,
             status: "OCCUPIED",
-            current_user_id: mockUserId,
+            current_user_id: mockUserIdFallback,
             current_user_name: `${manualStudentName} (${manualStudentId})`,
             current_reservation_id: Math.floor(Math.random() * 99999),
-            use_timer_seconds: use_timer,
-            total_duration_minutes: manualDuration,
+            use_timer_seconds: use_timer_value,
+            total_duration_minutes: isUnlimited ? undefined : effectiveDuration,
             reserved_at: reserved_at_str,
-            ends_at: ends_at_str
+            ends_at: ends_at_str_value
           }));
         }
       }
@@ -1368,16 +1384,16 @@ export default function Page() {
       setManualSeats(prev => prev.map(s => s.id === manualSelectedSeatId ? {
         ...s,
         status: "OCCUPIED" as const,
-        current_user_id: mockUserId,
+        current_user_id: mockUserIdFallback,
         current_user_name: `${manualStudentName} (${manualStudentId})`,
         current_reservation_id: Math.floor(Math.random() * 99999),
-        use_timer_seconds: use_timer,
-        total_duration_minutes: manualDuration,
+        use_timer_seconds: use_timer_value,
+        total_duration_minutes: isUnlimited ? undefined : effectiveDuration,
         reserved_at: reserved_at_str,
-        ends_at: ends_at_str
+        ends_at: ends_at_str_value
       } : s));
 
-      alert(`✅ 수동 예약 완료! (데모 모드)\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${manualDuration}분`);
+      alert(`✅ 수동 예약 완료! (데모 모드)\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${isUnlimited ? '무제한 (폐관까지)' : effectiveDuration + '분'}`);
     } finally {
       setManualLoading(false);
       setManualSelectedSeatId(null);
@@ -2976,23 +2992,43 @@ export default function Page() {
 
                 {/* Step 4: Duration */}
                 <div className="space-y-2 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
-                  <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">④ 사용 시간 선택</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {[30, 60, 90, 120, 180, 240].map(min => (
-                      <button
-                        key={min}
-                        onClick={() => setManualDuration(min)}
-                        className={`py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                          manualDuration === min
-                            ? "bg-emerald-600 border-emerald-500 text-white shadow-md"
-                            : "bg-white border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700"
-                        }`}
-                      >
-                        {min < 60 ? `${min}분` : `${min / 60}시간`}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[9px] text-slate-400 font-semibold text-center">선택: {manualDuration}분 ({(manualDuration/60).toFixed(1)}h)</p>
+                  <p className="text-[10px] font-extrabold text-slate-600 uppercase tracking-wider">④ 사용 시간 설정</p>
+                  {(() => {
+                    const manualConfig = manualFacility ? facilityConfigs[manualFacility.roomName] : null;
+                    const manualIsUnlimited = manualConfig && (manualConfig.max_use_hours === null || manualConfig.max_use_hours === undefined);
+                    if (manualIsUnlimited) {
+                      return (
+                        <div className="py-3 px-4 bg-emerald-50 border border-emerald-200 rounded-lg text-center">
+                          <span className="text-xs font-bold text-emerald-700">♾️ 무제한 (폐관 시간까지 자동 적용)</span>
+                          <p className="text-[9px] text-emerald-600 font-semibold mt-1">
+                            이 시설은 사용시간 제한이 없습니다. 운영 종료({manualConfig?.close_time?.slice(0,5) || "22:00"})까지 자동 배정됩니다.
+                          </p>
+                        </div>
+                      );
+                    }
+                    const maxMinutes = manualConfig?.max_use_hours ? manualConfig.max_use_hours * 60 : 240;
+                    const durationOptions = [30, 60, 90, 120, 180, 240].filter(m => m <= maxMinutes);
+                    return (
+                      <>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {durationOptions.map(min => (
+                            <button
+                              key={min}
+                              onClick={() => setManualDuration(min)}
+                              className={`py-2 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                                manualDuration === min
+                                  ? "bg-emerald-600 border-emerald-500 text-white shadow-md"
+                                  : "bg-white border-slate-200 text-slate-600 hover:border-emerald-400 hover:text-emerald-700"
+                              }`}
+                            >
+                              {min < 60 ? `${min}분` : `${min / 60}시간`}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[9px] text-slate-400 font-semibold text-center">선택: {manualDuration}분 ({(manualDuration/60).toFixed(1)}h){manualConfig?.max_use_hours ? ` / 최대 ${manualConfig.max_use_hours}시간` : ''}</p>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Submit */}
