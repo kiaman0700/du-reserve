@@ -765,13 +765,14 @@ export default function Page() {
     setDbSeats(prev => {
       const nextDbSeats = prev.map(s => s.id === seatId ? updater(s) : s);
       
-      if (selectedFacility) {
-        const mockSeats = nextDbSeats.filter(s => s.room_name === selectedFacility.roomName);
-        setFacilitySeats(fprev => ({
-          ...fprev,
-          [selectedFacility.id]: mockSeats
-        }));
-      }
+      // Update facilitySeats for all facilities to ensure state sync on any page/view
+      setFacilitySeats(fprev => {
+        const nextMap = { ...fprev };
+        Object.keys(nextMap).forEach(facId => {
+          nextMap[facId] = nextMap[facId].map(s => s.id === seatId ? updater(s) : s);
+        });
+        return nextMap;
+      });
       
       return nextDbSeats;
     });
@@ -1719,11 +1720,7 @@ export default function Page() {
         .eq('seat_id', activeRes.id)
         .eq('status', 'PENDING');
 
-      setShowWarningModal(false);
-      fetchSeatsAndReports();
-      alert("정상 반납 완료되었습니다.");
-    } catch (err) {
-      console.warn("Supabase return_seat failed, executing mock return:", err);
+      // Update local state immediately
       updateMockSeat(activeRes.id, s => ({
         ...s,
         status: "AVAILABLE",
@@ -1733,9 +1730,63 @@ export default function Page() {
         use_timer_seconds: undefined,
         total_duration_minutes: undefined,
         reserved_at: undefined,
-        ends_at: undefined
+        ends_at: undefined,
+        clearing_timer_seconds: undefined
       }));
+
+      setSelectedSeat(prev => prev && prev.id === activeRes.id ? {
+        ...prev,
+        status: "AVAILABLE",
+        current_user_id: undefined,
+        current_user_name: undefined,
+        current_reservation_id: undefined,
+        use_timer_seconds: undefined,
+        total_duration_minutes: undefined,
+        reserved_at: undefined,
+        ends_at: undefined,
+        clearing_timer_seconds: undefined
+      } : prev);
+
+      setIsVerified(false);
+      setCheckinTimeLeft(900);
+      setShowWarningModal(false);
+
+      fetchSeatsAndReports();
+      await fetchAllDbSeats();
+      alert("정상 반납 완료되었습니다.");
+    } catch (err) {
+      console.warn("Supabase return_seat failed, executing mock return:", err);
+      
+      // Update local state immediately for mock
+      updateMockSeat(activeRes.id, s => ({
+        ...s,
+        status: "AVAILABLE",
+        current_user_id: undefined,
+        current_user_name: undefined,
+        current_reservation_id: undefined,
+        use_timer_seconds: undefined,
+        total_duration_minutes: undefined,
+        reserved_at: undefined,
+        ends_at: undefined,
+        clearing_timer_seconds: undefined
+      }));
+
+      setSelectedSeat(prev => prev && prev.id === activeRes.id ? {
+        ...prev,
+        status: "AVAILABLE",
+        current_user_id: undefined,
+        current_user_name: undefined,
+        current_reservation_id: undefined,
+        use_timer_seconds: undefined,
+        total_duration_minutes: undefined,
+        reserved_at: undefined,
+        ends_at: undefined,
+        clearing_timer_seconds: undefined
+      } : prev);
+
       setAbsenceReports(prev => prev.filter(r => r.seat_id !== activeRes.id));
+      setIsVerified(false);
+      setCheckinTimeLeft(900);
       setShowWarningModal(false);
       alert("정상 반납 완료되었습니다.");
     }
