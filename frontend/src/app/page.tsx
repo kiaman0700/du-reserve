@@ -971,13 +971,23 @@ export default function Page() {
   }, [facilitySeats, selectedFacility]);
 
   useEffect(() => {
-    if (!selectedFacility || !currentUser) return;
+    if (!selectedFacility || !currentUser) {
+      setSelectedSeat(null);
+      return;
+    }
     const seats = facilitySeats[selectedFacility.id] || [];
     const mySeat = seats.find(s => s.current_user_id === currentUser.id);
-    if (mySeat) {
-      setSelectedSeat(mySeat);
+    
+    // 1. 만약 현재 선택된 좌석이 다른 시설의 좌석이라면 null로 초기화
+    if (selectedSeat && selectedSeat.room_name !== selectedFacility.roomName) {
+      setSelectedSeat(mySeat || null);
+    } else {
+      // 2. 현재 선택된 좌석이 없고 내 자리가 있으면 내 자리를 기본 선택으로 지정
+      if (mySeat && !selectedSeat) {
+        setSelectedSeat(mySeat);
+      }
     }
-  }, [selectedFacility, facilitySeats, currentUser]);
+  }, [selectedFacility, facilitySeats, currentUser, selectedSeat]);
 
   const prevManualFacilityRef = React.useRef<string | null>(null);
   useEffect(() => {
