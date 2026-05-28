@@ -67,6 +67,7 @@ export interface Seat {
   ends_at?: string;
   use_timer_seconds?: number;
   total_duration_minutes?: number;
+  check_in_at?: string;
 }
 
 export interface AbsenceReport {
@@ -426,6 +427,7 @@ export default function Page() {
             seat_id,
             user_id,
             status,
+            check_in_at,
             profiles (
               university_id,
               name
@@ -482,6 +484,7 @@ export default function Page() {
           current_user_id: activeRes ? activeRes.user_id : undefined,
           current_user_name: occupantName,
           current_reservation_id: activeRes ? activeRes.id : undefined,
+          check_in_at: activeRes ? activeRes.check_in_at : undefined,
           clearing_timer_seconds: clearingTimerSeconds,
           use_timer_seconds: seat.use_timer_seconds !== null ? seat.use_timer_seconds : undefined,
           total_duration_minutes: seat.total_duration_minutes !== null ? seat.total_duration_minutes : undefined,
@@ -891,15 +894,31 @@ export default function Page() {
     }
   }, [checkinTimeLeft, isVerified, globalMyReservation]);
 
+  // Synchronize isVerified state with globalMyReservation's database check-in status
   useEffect(() => {
-    if (!globalMyReservation) {
+    if (globalMyReservation) {
+      if (globalMyReservation.check_in_at) {
+        setIsVerified(true);
+      } else {
+        setIsVerified(false);
+      }
+    } else {
       setIsVerified(false);
       setCheckinTimeLeft(900);
     }
   }, [globalMyReservation]);
 
-  const handleVerifyCheckin = () => {
+  const handleVerifyCheckin = async () => {
     setIsVerified(true);
+    try {
+      if (!isMockMode && globalMyReservation && globalMyReservation.current_reservation_id) {
+        await supabase.from('reservations').update({
+          check_in_at: new Date().toISOString()
+        }).eq('id', globalMyReservation.current_reservation_id);
+      }
+    } catch (err) {
+      console.warn("Failed to save checkin to Supabase:", err);
+    }
     alert("✓ 입실 인증이 성공적으로 완료되었습니다. 즐거운 학습 시간 되세요!");
   };
 
@@ -1359,7 +1378,16 @@ export default function Page() {
       const { data: profile } = await supabase.from('profiles').select('id').eq('university_id', manualStudentId).single();
       const userId = profile?.id || mockUserId;
 
-      await supabase.rpc('reserve_seat', { p_seat_id: manualSelectedSeatId, p_user_id: userId });
+      const { data: newResId, error: rpcErr } = await supabase.rpc('reserve_seat', { p_seat_id: manualSelectedSeatId, p_user_id: userId });
+      if (rpcErr) throw rpcErr;
+
+      // Immediately verify the checkin in DB because this was booked manually by an admin (student is already at the library)
+      if (newResId) {
+        await supabase.from('reservations').update({
+          check_in_at: new Date().toISOString()
+        }).eq('id', newResId);
+      }
+
       await supabase.from('seats').update({
         use_timer_seconds: use_timer_value,
         total_duration_minutes: isUnlimited ? null : effectiveDuration,
@@ -1371,6 +1399,8 @@ export default function Page() {
     } catch (err: any) {
       console.warn("Admin manual reserve - using mock mode:", err);
       const mockUserIdFallback = `manual-${manualStudentId}`;
+      const mockResId = Math.floor(Math.random() * 99999);
+      const checkInTimeMock = new Date().toISOString();
 
       const seatInManual = manualSeats.find(s => s.id === manualSelectedSeatId);
       if (seatInManual) {
@@ -1381,7 +1411,8 @@ export default function Page() {
             status: "OCCUPIED",
             current_user_id: mockUserIdFallback,
             current_user_name: `${manualStudentName} (${manualStudentId})`,
-            current_reservation_id: Math.floor(Math.random() * 99999),
+            current_reservation_id: mockResId,
+            check_in_at: checkInTimeMock,
             use_timer_seconds: use_timer_value,
             total_duration_minutes: isUnlimited ? undefined : effectiveDuration,
             reserved_at: reserved_at_str,
@@ -1395,7 +1426,8 @@ export default function Page() {
         status: "OCCUPIED" as const,
         current_user_id: mockUserIdFallback,
         current_user_name: `${manualStudentName} (${manualStudentId})`,
-        current_reservation_id: Math.floor(Math.random() * 99999),
+        current_reservation_id: mockResId,
+        check_in_at: checkInTimeMock,
         use_timer_seconds: use_timer_value,
         total_duration_minutes: isUnlimited ? undefined : effectiveDuration,
         reserved_at: reserved_at_str,
