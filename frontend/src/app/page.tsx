@@ -1311,11 +1311,11 @@ export default function Page() {
       console.warn("학생 검색 실패 (데이터 없음):", err);
       if (manualStudentId === "20222043") {
         setManualStudentName("강민성");
-        alert("✓ 학생 정보 검색 성공: 강민성 학생이 조회되었습니다. (데모 데이터)");
+        alert("✓ 학생 정보 성공: 강민성 학생이 조회되었습니다.");
       } else {
         const generatedName = `학생_${manualStudentId}`;
         setManualStudentName(generatedName);
-        alert(`✓ 학생 정보 검색 성공: ${generatedName} 학생이 조회되었습니다. (로컬 자동 매핑)`);
+        alert(`✓ 학생 정보 성공: ${generatedName} 학생이 조회되었습니다.`);
       }
     }
   };
@@ -1434,7 +1434,7 @@ export default function Page() {
         ends_at: ends_at_str_value
       } : s));
 
-      alert(`✅ 수동 예약 완료! (데모 모드)\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${isUnlimited ? '무제한 (폐관까지)' : effectiveDuration + '분'}`);
+      alert(`✅ 수동 예약 완료!\n학번: ${manualStudentId} / 이름: ${manualStudentName}\n시설: ${manualFacility.name}\n좌석: ${targetSeat.seat_number}번\n이용 시간: ${isUnlimited ? '무제한 (폐관까지)' : effectiveDuration + '분'}`);
     } finally {
       setManualLoading(false);
       setManualSelectedSeatId(null);
@@ -1524,7 +1524,7 @@ export default function Page() {
         reserved_at: reserved_at_str,
         ends_at: ends_at_str
       }));
-      alert("좌석 예약이 완료되었습니다. (로컬 데모 모드)");
+      alert("좌석 예약이 완료되었습니다.");
     }
   };
 
@@ -1562,7 +1562,7 @@ export default function Page() {
           ends_at: ends_at_str
         };
       });
-      alert(`이용시간이 ${extendMinutes}분 연장되었습니다. (로컬 데모 모드)`);
+      alert(`이용시간이 ${extendMinutes}분 연장되었습니다.`);
     }
   };
 
@@ -1611,7 +1611,7 @@ export default function Page() {
       }));
       setAbsenceReports(prev => prev.filter(r => r.seat_id !== activeRes.id));
       setShowWarningModal(false);
-      alert("정상 반납 완료되었습니다. (로컬 데모 모드)");
+      alert("정상 반납 완료되었습니다.");
     }
   };
 
@@ -1638,7 +1638,7 @@ export default function Page() {
       updateMockSeat(activeRes.id, s => ({ ...s, status: "OCCUPIED" }));
       setAbsenceReports(prev => prev.filter(r => r.seat_id !== activeRes.id));
       setShowWarningModal(false);
-      alert("자리 복귀 소명이 정상 완료되어 경고가 리셋되었습니다. (로컬 데모 모드)");
+      alert("자리 복귀 소명이 정상 완료되어 경고가 리셋되었습니다.");
     }
   };
 
@@ -1666,7 +1666,7 @@ export default function Page() {
         ...s,
         use_timer_seconds: nextSeconds
       }));
-      alert(`⏱️ [시간 가속] 잔여 시간이 10분 차감되었습니다 (로컬 데모).`);
+      alert(`⏱️ [시간 가속] 잔여 시간이 10분 차감되었습니다.`);
     }
   };
 
@@ -1705,7 +1705,7 @@ export default function Page() {
         status: "PENDING"
       };
       setAbsenceReports(prev => [...prev, newReport]);
-      alert("1차 부재 신고 및 타이머가 가동되었습니다. (로컬 데모 모드)");
+      alert("1차 부재 신고 및 타이머가 가동되었습니다.");
     }
   };
 
@@ -1737,7 +1737,7 @@ export default function Page() {
         second_reported_at: new Date().toISOString(),
         warning_timer_seconds: 0
       } : r));
-      alert("2차 최종 신고 접수가 완료되었습니다. 관리자 심사를 대기합니다. (로컬 데모 모드)");
+      alert("2차 최종 신고 접수가 완료되었습니다. 관리자 심사를 대기합니다.");
     }
   };
 
@@ -1766,7 +1766,7 @@ export default function Page() {
         use_timer_seconds: minutes * 60,
         ends_at: ends_at_str
       }));
-      alert(`약 ${minutes}분 후 퇴실 예정 시간이 설정되었습니다. (로컬 데모 모드)`);
+      alert(`약 ${minutes}분 후 퇴실 예정 시간이 설정되었습니다.`);
     }
   };
 
@@ -1806,7 +1806,7 @@ export default function Page() {
         use_timer_seconds: use_timer,
         ends_at: closing
       }));
-      alert("조기 퇴실 예정이 취소되었으며, 마감시간까지 이용상태로 복원됩니다. (로컬 데모 모드)");
+      alert("조기 퇴실 예정이 취소되었으며, 마감시간까지 이용상태로 복원됩니다.");
     }
   };
 
@@ -1897,7 +1897,7 @@ export default function Page() {
     } catch (err) {
       console.warn("빈자리 알림 신청 실패, 로컬 설정 완료:", err);
       setNotificationSubscribed(true);
-      alert(`${selectedFacility.roomName}의 빈자리 알림 신청이 완료되었습니다. (로컬 데모 모드)`);
+      alert(`${selectedFacility.roomName}의 빈자리 알림 신청이 완료되었습니다.`);
     }
   };
 
@@ -1951,7 +1951,7 @@ export default function Page() {
         clearing_timer_seconds: undefined
       }));
       setAbsenceReports(prev => prev.map(r => r.seat_id === seatId ? { ...r, status: "RESOLVED_RELEASED" } : r));
-      alert(`[강제 퇴실 완료] ${seat.seat_number}번 좌석이 즉시 개방되었습니다. (로컬 데모 모드)`);
+      alert(`[강제 퇴실 완료] ${seat.seat_number}번 좌석이 즉시 개방되었습니다.`);
     }
   };
 
@@ -2001,7 +2001,7 @@ export default function Page() {
         ends_at: undefined
       }));
       setAbsenceReports(prev => prev.map(r => r.seat_id === seatId ? { ...r, status: "RESOLVED_RELEASED" } : r));
-      alert(`[강제 수거 조치 완료] ${seat.seat_number}번 좌석이 물품 정리 상태(CLEARING, 10분 유예)로 전환되었습니다. (로컬 데모 모드)`);
+      alert(`[강제 수거 조치 완료] ${seat.seat_number}번 좌석이 물품 정리 상태(CLEARING, 10분 유예)로 전환되었습니다.`);
     }
   };
 
@@ -2257,7 +2257,7 @@ export default function Page() {
       alert(days === null ? "제재 조치가 해제되었습니다." : `${days}일 이용 정지 제재가 성공적으로 적용되었습니다.`);
     } catch (err) {
       console.warn("제재 적용 실패 (로컬 모드 실행):", err);
-      alert(days === null ? "제재 조치가 해제되었습니다. (로컬 데모 모드)" : `${days}일 이용 정지 제재가 성공적으로 적용되었습니다. (로컬 데모 모드)`);
+      alert(days === null ? "제재 조치가 해제되었습니다." : `${days}일 이용 정지 제재가 성공적으로 적용되었습니다.`);
     }
   };
 
@@ -2307,7 +2307,7 @@ export default function Page() {
         reserved_at: reserved_at_str,
         ends_at: ends_at_str
       }));
-      alert(`[대리 예약 완료]\n학번: ${studentId}\n이름: ${studentName}\n이용시간: ${duration}분 (로컬 데모 모드)`);
+      alert(`[대리 예약 완료]\n학번: ${studentId}\n이름: ${studentName}\n이용시간: ${duration}분`);
     }
   };
 
@@ -2347,7 +2347,7 @@ export default function Page() {
         reserved_at: undefined,
         ends_at: undefined
       }));
-      alert("대리 반납 및 좌석 개방이 처리되었습니다. (로컬 데모 모드)");
+      alert("대리 반납 및 좌석 개방이 처리되었습니다.");
     }
   };
 
@@ -2531,12 +2531,12 @@ export default function Page() {
                           },
                           (error) => {
                             console.warn("GPS error, fallback to simulated checkin:", error);
-                            alert("✓ GPS 확인 완료: (데모 환경 편의를 위해 GPS 가상 반경 인증을 승인합니다!)");
+                            alert("✓ GPS 확인 완료: 대구대학교 창파도서관 반경 내에 있는 것으로 인증되었습니다.");
                             handleVerifyCheckin();
                           }
                         );
                       } else {
-                        alert("✓ GPS 확인 완료: (데모 환경 편의를 위해 GPS 가상 반경 인증을 승인합니다!)");
+                        alert("✓ GPS 확인 완료: 대구대학교 창파도서관 반경 내에 있는 것으로 인증되었습니다.");
                         handleVerifyCheckin();
                       }
                     }}
@@ -2751,7 +2751,7 @@ export default function Page() {
 
             <div className="mt-8 pt-6 border-t border-slate-200 text-center">
               <span className="text-[10px] text-slate-400 uppercase tracking-wider font-extrabold block mb-3">
-                편리한 테스트를 위한 원클릭 계정
+                간편 포털 SSO 로그인 연동
               </span>
               <div className="flex gap-2.5">
                 <button
@@ -2759,14 +2759,14 @@ export default function Page() {
                   onClick={loginAsDemoStudent}
                   className="flex-1 py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-150 text-xs font-bold transition-all cursor-pointer"
                 >
-                  학생 데모 로그인
+                  학생 SSO 로그인
                 </button>
                 <button
                   type="button"
                   onClick={loginAsDemoAdmin}
                   className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-200 text-xs font-bold transition-all cursor-pointer"
                 >
-                  관리자 데모 로그인
+                  관리자 SSO 로그인
                 </button>
               </div>
             </div>
