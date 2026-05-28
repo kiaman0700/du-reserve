@@ -1419,7 +1419,7 @@ export default function Page() {
     }
     
     try {
-      if (isMockMode) return;
+      if (isMockMode) throw new Error("Mock mode enabled");
       const { data, error } = await supabase
         .from('profiles')
         .select('name')
@@ -1561,6 +1561,7 @@ export default function Page() {
       setManualSelectedSeatId(null);
       setManualStudentId("");
       setManualStudentName("");
+      setSelectedSeat(null);
     }
   };
 
@@ -2271,6 +2272,7 @@ export default function Page() {
       }).eq('id', seatId);
 
       fetchSeatsAndReports();
+      setSelectedSeat(null);
     } catch (err) {
       console.warn("대리 예약 Supabase RPC 실패, 로컬 모드 병합:", err);
       const now = new Date();
@@ -2289,6 +2291,7 @@ export default function Page() {
         reserved_at: reserved_at_str,
         ends_at: ends_at_str
       }));
+      setSelectedSeat(null);
     }
   };
 
@@ -2449,6 +2452,7 @@ export default function Page() {
       }).eq('id', seatId);
 
       fetchSeatsAndReports();
+      setSelectedSeat(null);
       alert(`[대리 예약 완료]\n학번: ${studentId}\n이름: ${studentName}\n이용시간: ${duration}분`);
     } catch (err) {
       console.warn("대리 예약 실패 (로컬 모드 실행):", err);
@@ -2468,6 +2472,7 @@ export default function Page() {
         reserved_at: reserved_at_str,
         ends_at: ends_at_str
       }));
+      setSelectedSeat(null);
       alert(`[대리 예약 완료]\n학번: ${studentId}\n이름: ${studentName}\n이용시간: ${duration}분`);
     }
   };
