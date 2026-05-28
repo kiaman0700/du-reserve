@@ -686,27 +686,7 @@ export default function UserDashboard({
             )}
           </div>
 
-          {/* Simulation controller */}
-          <div className="mt-8 pt-4 border-t border-slate-200">
-            <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2">
-              <div className="flex items-center justify-between text-[10px] text-emerald-700 font-bold">
-                <span>🧪 테스트용 시뮬레이션 설정</span>
-                <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-1 py-0.5 rounded font-mono">DEV MODE</span>
-              </div>
-              <label className="flex items-center space-x-2 text-xs text-slate-700 cursor-pointer font-semibold">
-                <input
-                  type="checkbox"
-                  checked={timerSpeedUp}
-                  onChange={(e) => setTimerSpeedUp(e.target.checked)}
-                  className="rounded border-slate-300 bg-white text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                />
-                <span>타이머 속도 60배속 가속</span>
-              </label>
-              <p className="text-[10px] text-slate-400 leading-tight font-semibold">
-                활성화 시, 1차 신고 대기(30분 → 30초) 및 물품 정리(10분 → 10초) 타이머가 가속되어 신속한 동작 검증이 가능합니다.
-              </p>
-            </div>
-          </div>
+
         </div>
       </div>
 

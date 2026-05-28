@@ -260,7 +260,7 @@ export default function Page() {
   // Navigation & perspective
   const [perspective, setPerspective] = useState<"STUDENT" | "ADMIN">("STUDENT");
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
-  const [timerSpeedUp, setTimerSpeedUp] = useState<boolean>(true);
+  const [timerSpeedUp, setTimerSpeedUp] = useState<boolean>(false);
 
   // [TODO 8] QR/GPS 입실 인증 상태
   const [isVerified, setIsVerified] = useState<boolean>(false);
